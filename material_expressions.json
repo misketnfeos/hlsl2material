@@ -1,0 +1,778 @@
+{
+  "MaterialExpressionAdd": {
+    "class_name": "MaterialExpressionAdd",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionSubtract": {
+    "class_name": "MaterialExpressionSubtract",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionMultiply": {
+    "class_name": "MaterialExpressionMultiply",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDivide": {
+    "class_name": "MaterialExpressionDivide",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionFmod": {
+    "class_name": "MaterialExpressionFmod",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionPower": {
+    "class_name": "MaterialExpressionPower",
+    "inputs": [
+      "Base"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionSquareRoot": {
+    "class_name": "MaterialExpressionSquareRoot",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionAbs": {
+    "class_name": "MaterialExpressionAbs",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionSign": {
+    "class_name": "MaterialExpressionSign",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionFloor": {
+    "class_name": "MaterialExpressionFloor",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionCeil": {
+    "class_name": "MaterialExpressionCeil",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionRound": {
+    "class_name": "MaterialExpressionRound",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionFrac": {
+    "class_name": "MaterialExpressionFrac",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionMin": {
+    "class_name": "MaterialExpressionMin",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionMax": {
+    "class_name": "MaterialExpressionMax",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionOneMinus": {
+    "class_name": "MaterialExpressionOneMinus",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTruncate": {
+    "class_name": "MaterialExpressionTruncate",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionLinearInterpolate": {
+    "class_name": "MaterialExpressionLinearInterpolate",
+    "inputs": [
+      "A",
+      "B",
+      "Alpha"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionClamp": {
+    "class_name": "MaterialExpressionClamp",
+    "inputs": [
+      "Min",
+      "Max"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionSaturate": {
+    "class_name": "MaterialExpressionSaturate",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionSine": {
+    "class_name": "MaterialExpressionSine",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionCosine": {
+    "class_name": "MaterialExpressionCosine",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTangent": {
+    "class_name": "MaterialExpressionTangent",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionArcsine": {
+    "class_name": "MaterialExpressionArcsine",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionArccosine": {
+    "class_name": "MaterialExpressionArccosine",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionArctangent": {
+    "class_name": "MaterialExpressionArctangent",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionArctangent2": {
+    "class_name": "MaterialExpressionArctangent2",
+    "inputs": [
+      "X",
+      "Y"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDotProduct": {
+    "class_name": "MaterialExpressionDotProduct",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionCrossProduct": {
+    "class_name": "MaterialExpressionCrossProduct",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionNormalize": {
+    "class_name": "MaterialExpressionNormalize",
+    "inputs": [
+      "VectorInput"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionComponentMask": {
+    "class_name": "MaterialExpressionComponentMask",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionAppendVector": {
+    "class_name": "MaterialExpressionAppendVector",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDistance": {
+    "class_name": "MaterialExpressionDistance",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionTransform": {
+    "class_name": "MaterialExpressionTransform",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTransformPosition": {
+    "class_name": "MaterialExpressionTransformPosition",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTextureSample": {
+    "class_name": "MaterialExpressionTextureSample",
+    "inputs": [
+      "UVs",
+      "Tex"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionTextureObject": {
+    "class_name": "MaterialExpressionTextureObject",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTextureSampleParameter2D": {
+    "class_name": "MaterialExpressionTextureSampleParameter2D",
+    "inputs": [
+      "UVs"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionTextureCoordinate": {
+    "class_name": "MaterialExpressionTextureCoordinate",
+    "inputs": [],
+    "properties": {
+      "coordinate_index": {
+        "type": "int",
+        "value": "0"
+      },
+      "u_tiling": {
+        "type": "float",
+        "value": "1.0"
+      },
+      "v_tiling": {
+        "type": "float",
+        "value": "1.0"
+      }
+    }
+  },
+  "MaterialExpressionScalarParameter": {
+    "class_name": "MaterialExpressionScalarParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionVectorParameter": {
+    "class_name": "MaterialExpressionVectorParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionStaticBoolParameter": {
+    "class_name": "MaterialExpressionStaticBoolParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionStaticSwitchParameter": {
+    "class_name": "MaterialExpressionStaticSwitchParameter",
+    "inputs": [
+      "True",
+      "False"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionStaticComponentMaskParameter": {
+    "class_name": "MaterialExpressionStaticComponentMaskParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionConstant": {
+    "class_name": "MaterialExpressionConstant",
+    "inputs": [],
+    "properties": {
+      "r": {
+        "type": "float",
+        "value": "0.0"
+      }
+    }
+  },
+  "MaterialExpressionConstant2Vector": {
+    "class_name": "MaterialExpressionConstant2Vector",
+    "inputs": [],
+    "properties": {
+      "g": {
+        "type": "float",
+        "value": "0.0"
+      },
+      "r": {
+        "type": "float",
+        "value": "0.0"
+      }
+    }
+  },
+  "MaterialExpressionConstant3Vector": {
+    "class_name": "MaterialExpressionConstant3Vector",
+    "inputs": [],
+    "properties": {
+      "constant": {
+        "type": "LinearColor",
+        "value": "<Struct 'LinearColor' (0x000001D14B467EF8) {r: 0.000000, g: 0.000000, b: 0.000000, a: 0.000000}>"
+      }
+    }
+  },
+  "MaterialExpressionConstant4Vector": {
+    "class_name": "MaterialExpressionConstant4Vector",
+    "inputs": [],
+    "properties": {
+      "constant": {
+        "type": "LinearColor",
+        "value": "<Struct 'LinearColor' (0x000001D14B466218) {r: 0.000000, g: 0.000000, b: 0.000000, a: 0.000000}>"
+      }
+    }
+  },
+  "MaterialExpressionConstantBiasScale": {
+    "class_name": "MaterialExpressionConstantBiasScale",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionIf": {
+    "class_name": "MaterialExpressionIf",
+    "inputs": [
+      "A",
+      "B"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionStaticSwitch": {
+    "class_name": "MaterialExpressionStaticSwitch",
+    "inputs": [
+      "Value",
+      "True",
+      "False"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionWorldPosition": {
+    "class_name": "MaterialExpressionWorldPosition",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionCameraPositionWS": {
+    "class_name": "MaterialExpressionCameraPositionWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionCameraVectorWS": {
+    "class_name": "MaterialExpressionCameraVectorWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionPixelNormalWS": {
+    "class_name": "MaterialExpressionPixelNormalWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionVertexNormalWS": {
+    "class_name": "MaterialExpressionVertexNormalWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionReflectionVectorWS": {
+    "class_name": "MaterialExpressionReflectionVectorWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionPixelDepth": {
+    "class_name": "MaterialExpressionPixelDepth",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionSceneDepth": {
+    "class_name": "MaterialExpressionSceneDepth",
+    "inputs": [
+      "UVs"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionScreenPosition": {
+    "class_name": "MaterialExpressionScreenPosition",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionViewSize": {
+    "class_name": "MaterialExpressionViewSize",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionObjectPositionWS": {
+    "class_name": "MaterialExpressionObjectPositionWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionActorPositionWS": {
+    "class_name": "MaterialExpressionActorPositionWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionObjectRadius": {
+    "class_name": "MaterialExpressionObjectRadius",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionObjectBounds": {
+    "class_name": "MaterialExpressionObjectBounds",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionVertexColor": {
+    "class_name": "MaterialExpressionVertexColor",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTime": {
+    "class_name": "MaterialExpressionTime",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionTwoSidedSign": {
+    "class_name": "MaterialExpressionTwoSidedSign",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionVertexTangentWS": {
+    "class_name": "MaterialExpressionVertexTangentWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionLightVector": {
+    "class_name": "MaterialExpressionLightVector",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionPreSkinnedPosition": {
+    "class_name": "MaterialExpressionPreSkinnedPosition",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionPreSkinnedNormal": {
+    "class_name": "MaterialExpressionPreSkinnedNormal",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionLogarithm2": {
+    "class_name": "MaterialExpressionLogarithm2",
+    "inputs": [
+      "X"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionLogarithm10": {
+    "class_name": "MaterialExpressionLogarithm10",
+    "inputs": [
+      "X"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDDX": {
+    "class_name": "MaterialExpressionDDX",
+    "inputs": [
+      "Value"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDDY": {
+    "class_name": "MaterialExpressionDDY",
+    "inputs": [
+      "Value"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionFresnel": {
+    "class_name": "MaterialExpressionFresnel",
+    "inputs": [
+      "ExponentIn",
+      "BaseReflectFractionIn",
+      "Normal"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDesaturation": {
+    "class_name": "MaterialExpressionDesaturation",
+    "inputs": [
+      "Fraction"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionBlackBody": {
+    "class_name": "MaterialExpressionBlackBody",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionNoise": {
+    "class_name": "MaterialExpressionNoise",
+    "inputs": [
+      "Position",
+      "FilterWidth"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDepthFade": {
+    "class_name": "MaterialExpressionDepthFade",
+    "inputs": [
+      "FadeDistance",
+      "Opacity"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionSceneColor": {
+    "class_name": "MaterialExpressionSceneColor",
+    "inputs": [
+      "UVs"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionSceneTexture": {
+    "class_name": "MaterialExpressionSceneTexture",
+    "inputs": [
+      "UVs"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionParticleColor": {
+    "class_name": "MaterialExpressionParticleColor",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticlePositionWS": {
+    "class_name": "MaterialExpressionParticlePositionWS",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticleRadius": {
+    "class_name": "MaterialExpressionParticleRadius",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticleRelativeTime": {
+    "class_name": "MaterialExpressionParticleRelativeTime",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticleDirection": {
+    "class_name": "MaterialExpressionParticleDirection",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticleSpeed": {
+    "class_name": "MaterialExpressionParticleSpeed",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionParticleSize": {
+    "class_name": "MaterialExpressionParticleSize",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionDynamicParameter": {
+    "class_name": "MaterialExpressionDynamicParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionSphereMask": {
+    "class_name": "MaterialExpressionSphereMask",
+    "inputs": [
+      "A",
+      "B",
+      "Radius",
+      "Hardness"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionAntialiasedTextureMask": {
+    "class_name": "MaterialExpressionAntialiasedTextureMask",
+    "inputs": [
+      "UVs"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDistanceFieldGradient": {
+    "class_name": "MaterialExpressionDistanceFieldGradient",
+    "inputs": [
+      "Position"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionDistanceToNearestSurface": {
+    "class_name": "MaterialExpressionDistanceToNearestSurface",
+    "inputs": [
+      "Position"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionPanner": {
+    "class_name": "MaterialExpressionPanner",
+    "inputs": [
+      "Coordinate",
+      "Time",
+      "Speed"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionRotator": {
+    "class_name": "MaterialExpressionRotator",
+    "inputs": [
+      "Coordinate",
+      "Time"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionFunctionInput": {
+    "class_name": "MaterialExpressionFunctionInput",
+    "inputs": [
+      "Preview"
+    ],
+    "properties": {
+      "input_name": {
+        "type": "Name",
+        "value": "In"
+      },
+      "sort_priority": {
+        "type": "int",
+        "value": "0"
+      },
+      "use_preview_value_as_default": {
+        "type": "bool",
+        "value": "False"
+      }
+    }
+  },
+  "MaterialExpressionFunctionOutput": {
+    "class_name": "MaterialExpressionFunctionOutput",
+    "inputs": [],
+    "properties": {
+      "output_name": {
+        "type": "Name",
+        "value": "Result"
+      }
+    }
+  },
+  "MaterialExpressionCustom": {
+    "class_name": "MaterialExpressionCustom",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionChannelMaskParameter": {
+    "class_name": "MaterialExpressionChannelMaskParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionFeatureLevelSwitch": {
+    "class_name": "MaterialExpressionFeatureLevelSwitch",
+    "inputs": [
+      "Default",
+      "ES2",
+      "ES3_1",
+      "SM5"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionQualitySwitch": {
+    "class_name": "MaterialExpressionQualitySwitch",
+    "inputs": [
+      "Default",
+      "Low",
+      "High",
+      "Medium"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionShadingPathSwitch": {
+    "class_name": "MaterialExpressionShadingPathSwitch",
+    "inputs": [
+      "Default"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionMakeMaterialAttributes": {
+    "class_name": "MaterialExpressionMakeMaterialAttributes",
+    "inputs": [
+      "Normal",
+      "BaseColor",
+      "Metallic",
+      "Specular",
+      "Roughness",
+      "EmissiveColor",
+      "Opacity",
+      "OpacityMask",
+      "WorldPositionOffset",
+      "WorldDisplacement",
+      "TessellationMultiplier",
+      "SubsurfaceColor",
+      "ClearCoat",
+      "ClearCoatRoughness",
+      "AmbientOcclusion",
+      "Refraction",
+      "PixelDepthOffset"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionBreakMaterialAttributes": {
+    "class_name": "MaterialExpressionBreakMaterialAttributes",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionBumpOffset": {
+    "class_name": "MaterialExpressionBumpOffset",
+    "inputs": [
+      "Coordinate",
+      "Height",
+      "HeightRatioInput"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionPerInstanceFadeAmount": {
+    "class_name": "MaterialExpressionPerInstanceFadeAmount",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionPerInstanceRandom": {
+    "class_name": "MaterialExpressionPerInstanceRandom",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionCollectionParameter": {
+    "class_name": "MaterialExpressionCollectionParameter",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionEyeAdaptation": {
+    "class_name": "MaterialExpressionEyeAdaptation",
+    "inputs": [],
+    "properties": {}
+  },
+  "MaterialExpressionAtmosphericFogColor": {
+    "class_name": "MaterialExpressionAtmosphericFogColor",
+    "inputs": [
+      "WorldPosition"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionGIReplace": {
+    "class_name": "MaterialExpressionGIReplace",
+    "inputs": [
+      "Default",
+      "StaticIndirect",
+      "DynamicIndirect"
+    ],
+    "properties": {}
+  },
+  "MaterialExpressionLightmassReplace": {
+    "class_name": "MaterialExpressionLightmassReplace",
+    "inputs": [
+      "Realtime",
+      "Lightmass"
+    ],
+    "properties": {}
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "ue4_editor_cmd": "<INSTALL_PATH>\\Engine\\Binaries\\Win64\\UE4Editor-Cmd.exe",
+  "ue4_editor": "<INSTALL_PATH>\\Engine\\Binaries\\Win64\\UE4Editor.exe",
+  "project_path": "<YOUR_PROJECT>\\<ProjectName>.uproject",
+  "timeout": 300,
+  "material_path": "/Game/Materials",
+  "execution_mode": "editor"
+}
