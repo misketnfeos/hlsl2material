@@ -488,7 +488,21 @@ def _gen_material_node_t3d(
         parts.append(f'   bCanRenameNode=True')
     
     # 7. Pin
-    input_names = list(node.inputs.keys()) if node.inputs else node.input_names
+    # IMPORTANT: Use node.input_names order when available, because UE4 matches
+    # Inputs(N) to the Nth CustomProperties Pin by index. If we use
+    # node.inputs.keys() (dict insertion order from extract_inputs, which is
+    # sorted alphabetically), the pin order may differ from the Inputs()
+    # property order, causing wrong connections (e.g. Time→UV, UV→Time).
+    if node.input_names:
+        # Use the canonical order from input_names, then append any extra
+        # keys from node.inputs that aren't already listed
+        input_names = list(node.input_names)
+        if node.inputs:
+            for k in node.inputs:
+                if k not in input_names:
+                    input_names.append(k)
+    else:
+        input_names = list(node.inputs.keys()) if node.inputs else []
     
     # 输入 pin
     for pin_name in input_names:
