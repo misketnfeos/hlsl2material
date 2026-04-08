@@ -505,10 +505,98 @@ class ShadertoyConverter:
         return code
 
     def _convert_matrix_constructors(self, code: str) -> str:
-        """处理矩阵构造函数"""
-        # mat2(a, b, c, d) → float2x2(a, b, c, d)  — 已在类型映射中处理
-        # mat3(col0, col1, col2) 等复杂情况需要特殊处理
-        # 大部分情况下类型映射已经足够
+        """Convert GLSL-style matrix constructors to HLSL row-vector form.
+
+        GLSL allows scalar arguments in matrix constructors:
+            mat2(a, b, c, d)           → fills column-major
+            mat3(a,b,c, d,e,f, g,h,i)  → fills column-major
+
+        HLSL requires row vectors:
+            float2x2(float2(a,b), float2(c,d))
+            float3x3(float3(a,b,c), float3(d,e,f), float3(g,h,i))
+            float4x4(float4(a,..,d), float4(e,..,h), float4(i,..,l), float4(m,..,p))
+
+        Only rewrites when the argument count matches the scalar count
+        (4 for 2x2, 9 for 3x3, 16 for 4x4). If the user already passes
+        row vectors (e.g. float3x3(v1, v2, v3) with 3 args), leave as-is.
+        """
+        matrix_info = {
+            'float2x2': {'dim': 2, 'scalar_count': 4,  'row_type': 'float2'},
+            'float3x3': {'dim': 3, 'scalar_count': 9,  'row_type': 'float3'},
+            'float4x4': {'dim': 4, 'scalar_count': 16, 'row_type': 'float4'},
+        }
+
+        for mtype, info in matrix_info.items():
+            code = self._rewrite_matrix_constructor(code, mtype, info)
+
+        return code
+
+    def _split_args_balanced(self, args_str: str) -> list:
+        """Split a comma-separated argument string respecting nested parentheses.
+
+        e.g. "cos(rot), sin(rot), -sin(rot), cos(rot)"
+             → ["cos(rot)", "sin(rot)", "-sin(rot)", "cos(rot)"]
+        """
+        args = []
+        depth = 0
+        current = []
+        for ch in args_str:
+            if ch == '(':
+                depth += 1
+                current.append(ch)
+            elif ch == ')':
+                depth -= 1
+                current.append(ch)
+            elif ch == ',' and depth == 0:
+                args.append(''.join(current).strip())
+                current = []
+            else:
+                current.append(ch)
+        # last argument
+        last = ''.join(current).strip()
+        if last:
+            args.append(last)
+        return args
+
+    def _rewrite_matrix_constructor(self, code: str, mtype: str, info: dict) -> str:
+        """Rewrite all occurrences of mtype(scalar_args...) to mtype(rowN(...), ...).
+
+        Uses balanced parenthesis matching to correctly handle nested expressions.
+        """
+        dim = info['dim']
+        scalar_count = info['scalar_count']
+        row_type = info['row_type']
+
+        # Find pattern: float2x2( or float3x3( or float4x4(
+        pattern = re.compile(r'\b' + re.escape(mtype) + r'\s*\(')
+        offset = 0
+        while True:
+            m = pattern.search(code, offset)
+            if not m:
+                break
+            paren_start = m.end() - 1  # position of '('
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+
+            # Extract the arguments string between ( and )
+            args_str = code[paren_start + 1:paren_end]
+            args = self._split_args_balanced(args_str)
+
+            if len(args) == scalar_count:
+                # This is a scalar-argument constructor — rewrite to row vectors
+                rows = []
+                for r in range(dim):
+                    row_args = args[r * dim:(r + 1) * dim]
+                    rows.append(f'{row_type}({", ".join(row_args)})')
+                new_constructor = f'{mtype}({", ".join(rows)})'
+                code = code[:m.start()] + new_constructor + code[paren_end + 1:]
+                offset = m.start() + len(new_constructor)
+            else:
+                # Not scalar args (already row vectors or single scalar) — skip
+                offset = paren_end + 1
+
         return code
 
     def _convert_texture_calls(self, code: str) -> str:
