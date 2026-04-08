@@ -821,7 +821,8 @@ def generate_t3d_from_custom_hlsl(
     
     # 4. Auto-create input nodes (builtin variables + parameters) and connect to Custom Node
     from auto_input_generator import auto_create_inputs_for_graph
-    auto_create_inputs_for_graph(graph, hlsl_code, custom_node_x=start_x, custom_node_y=start_y)
+    auto_create_inputs_for_graph(graph, hlsl_code, custom_node_x=start_x, custom_node_y=start_y,
+                                 known_input_names=input_names)
     
     # 5. Generate T3D
     return generate_t3d_from_material_graph(graph)

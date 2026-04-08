@@ -559,6 +559,7 @@ def auto_create_inputs_for_graph(
     hlsl_code: str,
     custom_node_x: int = 0,
     custom_node_y: int = 0,
+    known_input_names: list = None,
 ) -> MaterialGraph:
     """
     为已有的 MaterialGraph 自动添加输入节点并连线到 Custom Node
@@ -571,12 +572,19 @@ def auto_create_inputs_for_graph(
         hlsl_code: HLSL 源代码
         custom_node_x: Custom Node 的 X 坐标
         custom_node_y: Custom Node 的 Y 坐标
+        known_input_names: 已知的输入变量名列表（跳过 parse_hlsl 解析）
 
     返回:
         更新后的 MaterialGraph
     """
-    generator = AutoInputGenerator()
-    inputs = generator.extract_inputs(hlsl_code=hlsl_code)
+    if known_input_names:
+        # Use pre-extracted input names (e.g. from Shadertoy converter)
+        # to avoid parsing complex converted HLSL that hlsl_parser can't handle
+        generator = AutoInputGenerator()
+        inputs = [generator._analyze_variable(name) for name in known_input_names]
+    else:
+        generator = AutoInputGenerator()
+        inputs = generator.extract_inputs(hlsl_code=hlsl_code)
 
     next_id = graph._next_id
 
