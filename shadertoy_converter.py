@@ -637,6 +637,108 @@ class ShadertoyConverter:
         # 修复 GLSL 向量*矩阵乘法 → HLSL mul()
         result = self._convert_matrix_multiply(result)
 
+        # 修复 GLSL 截断构造函数 → HLSL swizzle
+        # e.g. float2(expr_returning_float3) → (expr_returning_float3).xy
+        result = self._convert_truncation_constructors(result)
+
+        return result
+
+    def _convert_truncation_constructors(self, code: str) -> str:
+        """Convert GLSL truncation constructors to HLSL swizzle.
+
+        In GLSL, vec2(vec3_value) truncates to the first 2 components.
+        In HLSL, float2(float3_value) is ILLEGAL — must use .xy swizzle.
+
+        Converts:
+            float2(<single_expr>) → (<single_expr>).xy   (when expr is not a scalar literal)
+            float3(<single_expr>) → (<single_expr>).xyz   (when expr is not a scalar literal)
+
+        Only applies when:
+            - There is exactly 1 argument (no commas at depth 0)
+            - The argument is NOT a numeric literal (those are handled by _expand_constructors)
+            - The argument contains a function call or variable that likely returns a higher-dim vector
+        """
+        # Swizzle suffixes for truncation
+        swizzle_map = {
+            'float2': '.xy',
+            'float3': '.xyz',
+        }
+
+        for target_type, swizzle in swizzle_map.items():
+            code = self._rewrite_truncation(code, target_type, swizzle)
+
+        return code
+
+    def _rewrite_truncation(self, code: str, target_type: str, swizzle: str) -> str:
+        """Rewrite float2(expr) → (expr).xy when expr is a single non-scalar argument.
+
+        Uses balanced parenthesis matching and heuristics to detect truncation patterns.
+        """
+        pattern = re.compile(r'\b' + re.escape(target_type) + r'\s*\(')
+        offset = 0
+
+        while True:
+            m = pattern.search(code, offset)
+            if not m:
+                break
+
+            paren_start = m.end() - 1  # position of '('
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+
+            args_str = code[paren_start + 1:paren_end]
+            args = self._split_args_balanced(args_str)
+
+            if len(args) == 1:
+                arg = args[0].strip()
+                # Skip numeric literals — _expand_constructors handles those
+                if re.match(r'^-?(\d+\.?\d*|\d*\.\d+)[fF]?$', arg):
+                    offset = paren_end + 1
+                    continue
+
+                # Skip if the arg is already the same type (e.g. float2(float2(...)))
+                # or a lower-dim type — those are valid
+                # We only want to convert when the arg is likely a higher-dim vector
+                # Heuristic: the arg contains a function call (has parens) or is a
+                # variable/expression that is NOT a floatN constructor of same or lower dim
+                is_same_or_lower_constructor = False
+                for check_type in self._get_same_or_lower_types(target_type):
+                    if re.match(r'\b' + re.escape(check_type) + r'\s*\(', arg):
+                        is_same_or_lower_constructor = True
+                        break
+
+                if is_same_or_lower_constructor:
+                    offset = paren_end + 1
+                    continue
+
+                # This looks like a truncation: float2(higher_dim_expr) → (higher_dim_expr).xy
+                new_code = f'({arg}){swizzle}'
+                code = code[:m.start()] + new_code + code[paren_end + 1:]
+                offset = m.start() + len(new_code)
+            else:
+                # Multiple args — not a truncation, skip
+                offset = paren_end + 1
+
+        return code
+
+    def _get_same_or_lower_types(self, target_type: str) -> list:
+        """Return vector types that are same dimension or lower than target_type.
+
+        For float2: [float2, int2, uint2] — constructing from these is valid
+        For float3: [float2, float3, int2, int3, uint2, uint3] — valid
+        """
+        dim_map = {'float2': 2, 'float3': 3, 'float4': 4}
+        target_dim = dim_map.get(target_type, 0)
+        result = []
+        for t, d in dim_map.items():
+            if d <= target_dim:
+                result.append(t)
+        # Also add int/uint variants
+        for prefix in ['int', 'uint', 'half']:
+            for d in range(2, target_dim + 1):
+                result.append(f'{prefix}{d}')
         return result
 
     def _convert_matrix_multiply(self, code: str) -> str:
