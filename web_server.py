@@ -2437,7 +2437,7 @@ def kill_port(port):
 
 def main():
     PORT = 8080
-    HOST = '127.0.0.1'
+    HOST = '0.0.0.0'
 
     # 启动前强制关闭占用 8080 端口的旧进程
     kill_port(PORT)
