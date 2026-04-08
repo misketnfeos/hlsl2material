@@ -4,115 +4,117 @@
 [![Python 3.6+](https://img.shields.io/badge/python-3.6+-green.svg)](https://www.python.org/)
 [![UE4 4.27](https://img.shields.io/badge/UE4-4.27-orange.svg)](https://www.unrealengine.com/)
 
-> GLSL / HLSL / UE4 材质节点 三方互转工具
+> Bi-directional converter between GLSL / HLSL / UE4 Material Nodes
 
-**HLSL2Material** 是一个 Python 工具，打通了 **Shadertoy GLSL**、**HLSL Custom Node** 和 **UE4 材质节点图** 之间的双向转换。通过 Web UI 或 CLI，复制粘贴代码即可自动生成完整的材质节点（含输入参数节点和连线），粘贴到 UE4.27 材质编辑器直接可用。
+[中文文档](README_CN.md)
 
-## 功能特性
+**HLSL2Material** is a Python tool that bridges **Shadertoy GLSL**, **HLSL Custom Nodes**, and **UE4 Material Node Graphs** with full bi-directional conversion. Through a Web UI or CLI, simply paste your shader code and get a complete material node graph (with input parameter nodes and wiring) ready to paste into the UE4.27 Material Editor.
 
-- **GLSL → HLSL → UE4 节点**：从 Shadertoy 复制 GLSL 代码，自动识别并转换为 UE4 材质节点
-- **HLSL → UE4 节点**：将 Custom HLSL 代码转换为原生 MaterialExpression 节点
-- **UE4 节点 → HLSL**：反向转换，将材质节点图转回 HLSL 代码
-- **自动输入节点**：自动识别外部变量，创建 ScalarParameter / VectorParameter / TextureSample 并连线
-- **T3D 一键复制**：生成的 T3D 包含完整节点和连线，Ctrl+V 粘贴到 UE4 即可使用
-- **Web 交互界面**：浏览器中实时输入代码、预览节点图、复制 T3D
-- **自动代码识别**：粘贴任意代码，自动判断是 GLSL / HLSL / T3D 格式
+## Features
 
-## 使用流程
+- **GLSL → HLSL → UE4 Nodes** — Paste Shadertoy GLSL code, auto-detect and convert to UE4 material nodes
+- **HLSL → UE4 Nodes** — Convert Custom HLSL code into native MaterialExpression nodes
+- **UE4 Nodes → HLSL** — Reverse conversion, turn a material node graph back into HLSL code
+- **Auto Input Nodes** — Automatically detect external variables and create ScalarParameter / VectorParameter / TextureSample nodes with wiring
+- **One-Click T3D Copy** — Generated T3D contains complete nodes and connections, Ctrl+V to paste into UE4
+- **Web UI** — Real-time code input, node graph preview, and T3D copy in the browser
+- **Auto Code Detection** — Paste any code and the tool auto-detects whether it's GLSL / HLSL / T3D format
+
+## Workflow
 
 ```
-从 Shadertoy 复制 GLSL 代码
+Copy GLSL code from Shadertoy
          ↓
-粘贴到 Web UI（自动识别为 GLSL）
+Paste into Web UI (auto-detected as GLSL)
          ↓
-自动转换: GLSL → HLSL → 材质节点图 + 输入参数节点
+Auto convert: GLSL → HLSL → Material Node Graph + Input Parameter Nodes
          ↓
-一键复制 T3D → 在 UE4.27 材质编辑器 Ctrl+V
+One-click copy T3D → Ctrl+V in UE4.27 Material Editor
          ↓
-完整节点图 + 所有连线，直接可用
+Complete node graph + all connections, ready to use
 ```
 
-## 前置要求
+## Prerequisites
 
-- **Python 3.6+**（纯标准库实现，无第三方依赖）
-- **Unreal Engine 4.27**（T3D 格式仅在 4.27 验证）
+- **Python 3.6+** (pure standard library, no third-party dependencies)
+- **Unreal Engine 4.27** (T3D format verified on 4.27 only)
 
-## 快速开始
+## Quick Start
 
-### Web UI（推荐）
+### Web UI (Recommended)
 
 ```bash
-# 克隆仓库
+# Clone the repository
 git clone https://github.com/misketnfeos/hlsl2material.git
 cd hlsl2material
 
-# 启动 Web 服务器
+# Start the web server
 python web_server.py --port 8080
 
-# 在浏览器中打开 http://127.0.0.1:8080
+# Open http://127.0.0.1:8080 in your browser
 ```
 
-Web UI 支持：
-- **T3D 节点粘贴**：从 UE4 复制节点 → 可视化 → 反向转为 HLSL → 复制回 UE4
-- **HLSL / GLSL 模式**：粘贴任意代码 → 自动识别类型 → 转换为节点图 → 复制 T3D
+Web UI supports:
+- **T3D Node Paste** — Copy nodes from UE4 → Visualize → Reverse convert to HLSL → Copy back to UE4
+- **HLSL / GLSL Mode** — Paste any code → Auto-detect type → Convert to node graph → Copy T3D
 
-### 命令行
+### Command Line
 
 ```bash
-# HLSL 转换
+# HLSL conversion
 python hlsl2material.py my_shader.hlsl
 python hlsl2material.py --code "float3 c = lerp(a, b, uv.x); return c;"
 
-# 使用内置示例
+# Use built-in examples
 python hlsl2material.py --example fresnel
 python hlsl2material.py --example dissolve -n M_Dissolve
 
-# 自动创建输入参数节点
+# Auto-create input parameter nodes
 python hlsl2material.py --example fresnel --auto-input
 
-# GLSL/Shadertoy 转换
+# GLSL / Shadertoy conversion
 python hlsl2material.py --glsl my_shader.glsl
 python hlsl2material.py --glsl-code "void mainImage(out vec4 o, in vec2 u){o=vec4(u/iResolution.xy,0,1);}"
 
-# 反向转换: 材质节点图 → HLSL
+# Reverse conversion: Material Node Graph → HLSL
 python hlsl2material.py --reverse --example fresnel
 
-# 查看所有内置示例
+# List all built-in examples
 python hlsl2material.py --list-examples
 ```
 
-## 架构概览
+## Architecture
 
 ```
 hlsl2material/
-├── hlsl2material.py            # 主入口 CLI 工具
-├── web_server.py               # Web 交互界面（推荐使用方式）
-├── hlsl_parser.py              # HLSL 词法分析 & 语法解析 → AST
-├── hlsl_preprocessor.py        # HLSL 预处理（宏展开等）
-├── node_mapper.py              # AST → UE4 MaterialExpression 节点图
-├── shadertoy_converter.py      # Shadertoy GLSL → HLSL 转换
-├── reverse_converter.py        # 反向转换: MaterialGraph → HLSL
-├── auto_input_generator.py     # 自动识别输入变量并创建参数节点
-├── t3d_generator.py            # MaterialGraph → T3D 剪贴板格式
-├── t3d_parser.py               # T3D 格式解析
-├── graph_visualizer.py         # 节点图 → 交互式 HTML 可视化
-├── ue4_codegen.py              # 节点图 → UE4 Editor Python 脚本
-├── custom_converter.py         # Custom HLSL 节点转换器
-└── material_expressions.json   # UE4 材质表达式映射数据
+├── hlsl2material.py            # Main entry point / CLI tool
+├── web_server.py               # Web UI (recommended usage)
+├── hlsl_parser.py              # HLSL lexer & parser → AST
+├── hlsl_preprocessor.py        # HLSL preprocessor (macro expansion, etc.)
+├── node_mapper.py              # AST → UE4 MaterialExpression node graph
+├── shadertoy_converter.py      # Shadertoy GLSL → HLSL conversion
+├── reverse_converter.py        # Reverse conversion: MaterialGraph → HLSL
+├── auto_input_generator.py     # Auto-detect input variables & create parameter nodes
+├── t3d_generator.py            # MaterialGraph → T3D clipboard format
+├── t3d_parser.py               # T3D format parser
+├── graph_visualizer.py         # Node graph → interactive HTML visualization
+├── ue4_codegen.py              # Node graph → UE4 Editor Python script
+├── custom_converter.py         # Custom HLSL node converter
+└── material_expressions.json   # UE4 material expression mapping data
 ```
 
-## 支持的 HLSL 子集
+## Supported HLSL Subset
 
-| 类别 | 支持内容 |
-|------|----------|
-| **类型** | `float`, `float2`, `float3`, `float4`, `half`, `half3`, `half4`, `int`, `bool` |
-| **运算符** | `+` `-` `*` `/` `%` `>` `<` `>=` `<=` `==` `!=` `&&` `\|\|` `!` `? :` |
-| **内置函数** | `lerp`, `saturate`, `clamp`, `dot`, `cross`, `normalize`, `pow`, `sin`, `cos`, `tan`, `abs`, `sign`, `floor`, `ceil`, `round`, `frac`, `sqrt`, `min`, `max`, `step`, `smoothstep`, `length`, `distance`, `tex2D`, `mul` 等 |
-| **语法** | 变量声明与赋值, Swizzle (`.xyz`, `.rg`), 构造函数 (`float3(...)`), `return` 语句, 三元运算符 |
+| Category | Supported |
+|----------|-----------|
+| **Types** | `float`, `float2`, `float3`, `float4`, `half`, `half3`, `half4`, `int`, `bool` |
+| **Operators** | `+` `-` `*` `/` `%` `>` `<` `>=` `<=` `==` `!=` `&&` `\|\|` `!` `? :` |
+| **Built-in Functions** | `lerp`, `saturate`, `clamp`, `dot`, `cross`, `normalize`, `pow`, `sin`, `cos`, `tan`, `abs`, `sign`, `floor`, `ceil`, `round`, `frac`, `sqrt`, `min`, `max`, `step`, `smoothstep`, `length`, `distance`, `tex2D`, `mul`, etc. |
+| **Syntax** | Variable declaration & assignment, Swizzle (`.xyz`, `.rg`), Constructors (`float3(...)`), `return` statements, Ternary operator |
 
-> **注意**：`for`/`while` 循环、自定义函数、`struct`、预处理器指令等暂不支持，这些会保留为 Custom Expression 节点。
+> **Note:** `for`/`while` loops, user-defined functions, `struct`, and preprocessor directives are not yet supported — these will be preserved as Custom Expression nodes.
 
-## GLSL → HLSL 转换规则
+## GLSL → HLSL Conversion Rules
 
 | GLSL | HLSL |
 |------|------|
@@ -123,24 +125,24 @@ hlsl2material/
 | `mod(a, b)` | `fmod(a, b)` |
 | `texture()` / `texture2D()` | `tex2D()` |
 | `vec3(1.0)` | `float3(1.0, 1.0, 1.0)` |
-| `iTime` | Time 节点 |
+| `iTime` | Time node |
 | `iResolution` | ViewSize |
 | `fragCoord / iResolution` | UV (0~1) |
 
-## 内置示例
+## Built-in Examples
 
-| 示例 | 效果 |
-|------|------|
-| `fresnel` | 菲涅尔效果 |
-| `dissolve` | 溶解效果 |
-| `simple_blend` | 简单颜色混合 |
-| `rim_light` | 边缘光效果 |
-| `uv_distortion` | UV 扭曲效果 |
+| Example | Effect |
+|---------|--------|
+| `fresnel` | Fresnel effect |
+| `dissolve` | Dissolve effect |
+| `simple_blend` | Simple color blending |
+| `rim_light` | Rim lighting effect |
+| `uv_distortion` | UV distortion effect |
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
 
-## 许可证
+## License
 
-本项目基于 [MIT License](LICENSE) 开源。
+This project is licensed under the [MIT License](LICENSE).
