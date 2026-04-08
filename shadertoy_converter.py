@@ -85,7 +85,7 @@ TYPE_DIMENSIONS = {
 FUNCTION_MAP = {
     'mix':           'lerp',
     'fract':         'frac',
-    'mod':           'glsl_mod',
+    'mod':           'glsl_mod',  # will be inlined later by _inline_glsl_mod()
     'texture':       'tex2D',
     'texture2D':     'tex2D',
     'textureLod':    'tex2Dlod',
@@ -122,7 +122,7 @@ SHADERTOY_UNIFORMS = {
     'iGlobalTime':      {'ue4': 'Time',          'desc': 'Time node (legacy name)'},
     'iTimeDelta':       {'ue4': '0.016',         'desc': 'Frame delta time (~16ms), use a parameter for accuracy'},
     'iFrame':           {'ue4': '0',             'desc': 'Frame number (not directly available in UE4 material)'},
-    'iResolution':      {'ue4': 'float3(ViewSize, 1.0)',      'desc': 'Screen resolution as float3(width, height, 1.0)'},
+    'iResolution':      {'ue4': 'float3(ViewSize.y, ViewSize.x, 1.0)',      'desc': 'Screen resolution as float3(width, height, 1.0). ViewSize.yx because UE4 ViewSize is (height, width)'},
     'iMouse':           {'ue4': 'float4(0,0,0,0)', 'desc': 'Mouse position (removed, use parameter if needed)'},
     'iDate':            {'ue4': 'float4(0,0,0,0)', 'desc': 'Date (not available in UE4 material)'},
     'iSampleRate':      {'ue4': '44100.0',        'desc': 'Audio sample rate (not relevant for UE4)'},
@@ -597,6 +597,9 @@ class ShadertoyConverter:
         # 2. 函数映射
         result = self._map_functions(result)
 
+        # 2b. 内联 glsl_mod() 为表达式（不能在 Custom Node 内定义函数）
+        result = self._inline_glsl_mod(result)
+
         # 3. 构造函数展开（如 vec3(1.0) → float3(1.0, 1.0, 1.0)）
         result = self._expand_constructors(result)
 
@@ -638,6 +641,37 @@ class ShadertoyConverter:
                 result
             )
         return result
+
+    def _inline_glsl_mod(self, code: str) -> str:
+        """Inline glsl_mod(a, b) calls to ((a) - (b) * floor((a) / (b))).
+
+        UE4 Custom Node code runs inside a function body, so we cannot define
+        standalone helper functions.  Instead we expand each glsl_mod() call
+        into the equivalent arithmetic expression.
+        """
+        pattern = re.compile(r'\bglsl_mod\s*\(')
+        offset = 0
+        while True:
+            m = pattern.search(code, offset)
+            if not m:
+                break
+            paren_start = m.end() - 1  # position of '('
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+            inner = code[paren_start + 1:paren_end]
+            # Split into two args at top-level comma
+            args = self._split_args_balanced(inner)
+            if len(args) != 2:
+                offset = paren_end + 1
+                continue
+            a = args[0].strip()
+            b = args[1].strip()
+            replacement = f'(({a}) - ({b}) * floor(({a}) / ({b})))'
+            code = code[:m.start()] + replacement + code[paren_end + 1:]
+            offset = m.start() + len(replacement)
+        return code
 
     def _expand_constructors(self, code: str) -> str:
         """展开标量参数的向量构造函数
@@ -1798,9 +1832,9 @@ class ShadertoyConverter:
 
         # 模式1: uv = fragCoord / iResolution.xy
         # 或: uv = fragCoord.xy / iResolution.xy
-        # 注意: iResolution 可能已被 _map_shadertoy_uniforms 替换为 float3(ViewSize, 1.0)
+        # 注意: iResolution 可能已被 _map_shadertoy_uniforms 替换为 float3(ViewSize.y, ViewSize.x, 1.0)
         uv_pattern = re.compile(
-            r'(\w+)\s*=\s*fragCoord(?:\.xy)?\s*/\s*(?:float3\(ViewSize,\s*1\.0\)|ViewSize|iResolution)(?:\.xy)?\s*;'
+            r'(\w+)\s*=\s*fragCoord(?:\.xy)?\s*/\s*(?:float3\(ViewSize\.y,\s*ViewSize\.x,\s*1\.0\)|float3\(ViewSize,\s*1\.0\)|ViewSize(?:\.yx)?|iResolution)(?:\.xy)?\s*;'
         )
         match = uv_pattern.search(result)
         if match:
@@ -1826,9 +1860,9 @@ class ShadertoyConverter:
         if self._is_fragcoord_mutated(result):
             # 模式2: fragCoord 被当作可变局部变量使用
             # 注入局部变量声明，保留所有 fragCoord 引用不变
-            result = 'float2 fragCoord = (UV * ViewSize);\n' + result
+            result = 'float2 fragCoord = (UV * ViewSize.yx);\n' + result
             self.warnings.append(
-                'fragCoord 被用作可变局部变量，已注入 float2 fragCoord = (UV * ViewSize) 声明。'
+                'fragCoord 被用作可变局部变量，已注入 float2 fragCoord = (UV * ViewSize.yx) 声明。'
                 '请确保 UV 和 ViewSize 已作为 Custom Node 的输入。'
             )
         else:
@@ -1841,11 +1875,11 @@ class ShadertoyConverter:
                     continue
                 code_part = line.split('//')[0]
                 if re.search(r'\bfragCoord\b', code_part):
-                    lines[i] = re.sub(r'\bfragCoord\b', '(UV * ViewSize)', line)
+                    lines[i] = re.sub(r'\bfragCoord\b', '(UV * ViewSize.yx)', line)
                     replaced = True
             if replaced:
                 result = '\n'.join(lines)
-                self.warnings.append('fragCoord 替换为 (UV * ViewSize)。请确保 UV 和 ViewSize 已作为 Custom Node 的输入。')
+                self.warnings.append('fragCoord 替换为 (UV * ViewSize.yx)。请确保 UV 和 ViewSize 已作为 Custom Node 的输入。')
 
         return result
 
@@ -2120,25 +2154,6 @@ class ShadertoyConverter:
             for g in global_lines:
                 converted_global = self._convert_defines_to_const(g)
                 parts.append(converted_global)
-            parts.append('')
-
-        # 1b. Inject glsl_mod helper functions if needed
-        # Check all code parts for glsl_mod usage
-        all_code_preview = '\n'.join(helpers) + '\n' + main_code
-        if 'glsl_mod(' in all_code_preview:
-            glsl_mod_helpers = (
-                '// GLSL mod() equivalent - always non-negative for positive y\n'
-                'float glsl_mod(float x, float y) { return x - y * floor(x / y); }\n'
-                'float2 glsl_mod(float2 x, float y) { return x - y * floor(x / y); }\n'
-                'float2 glsl_mod(float2 x, float2 y) { return x - y * floor(x / y); }\n'
-                'float3 glsl_mod(float3 x, float y) { return x - y * floor(x / y); }\n'
-                'float3 glsl_mod(float3 x, float3 y) { return x - y * floor(x / y); }\n'
-                'float4 glsl_mod(float4 x, float y) { return x - y * floor(x / y); }\n'
-                'float4 glsl_mod(float4 x, float4 y) { return x - y * floor(x / y); }'
-            )
-            if not global_lines:
-                parts.append('// ── Global Declarations ──')
-            parts.append(glsl_mod_helpers)
             parts.append('')
 
         # 2. Struct encapsulation
