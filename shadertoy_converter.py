@@ -377,11 +377,14 @@ class ShadertoyConverter:
         """
         functions = []
         # 匹配函数定义模式
+        # Exclude control flow keywords (if, else, for, while, switch, do) from being
+        # mistakenly matched as function return types
         func_pattern = re.compile(
-            r'(?:^|\n)\s*'                      # 行首
-            r'([\w]+(?:\s+[\w]+)*)'              # 返回类型（可能是 vec3、float 等）
-            r'\s+(\w+)\s*'                       # 函数名
-            r'\([^)]*\)\s*\{',                   # 参数列表和 {
+            r'(?:^|\n)\s*'
+            r'(?!(?:if|else|for|while|switch|do|return|struct|class)\b)'
+            r'([\w]+(?:\s+[\w]+)*)'
+            r'\s+(\w+)\s*'
+            r'\([^)]*\)\s*\{',
             re.MULTILINE
         )
 
@@ -543,7 +546,178 @@ class ShadertoyConverter:
         # 修复 GLSL 特有的类型转换
         # int(x) → (int)(x) — HLSL 也支持函数式转换，保留即可
 
+        # 修复 GLSL 向量*矩阵乘法 → HLSL mul()
+        result = self._convert_matrix_multiply(result)
+
         return result
+
+    def _convert_matrix_multiply(self, code: str) -> str:
+        """Convert GLSL vector*matrix multiplication to HLSL mul() calls.
+
+        In GLSL, `vec2 * mat2` is valid matrix multiplication.
+        In HLSL, `float2 * float2x2` is NOT valid — must use mul(vector, matrix).
+
+        Handles:
+          1. expr * floatNxN(...)  → mul(expr, floatNxN(...))
+          2. expr *= floatNxN(...) → expr = mul(expr, floatNxN(...))
+          3. expr * matrixVar      → mul(expr, matrixVar)  (tracked via declarations)
+          4. expr *= matrixVar     → expr = mul(expr, matrixVar)
+        """
+        matrix_types = {'float2x2', 'float3x3', 'float4x4'}
+
+        # Step 1: Collect declared matrix variable names from the code
+        matrix_vars = set()
+        for mtype in matrix_types:
+            decl_pattern = re.compile(r'\b' + re.escape(mtype) + r'\s+(\w+)\b')
+            for m in decl_pattern.finditer(code):
+                matrix_vars.add(m.group(1))
+
+        # Step 2: Handle `expr *= floatNxN(...)` → `expr = mul(expr, floatNxN(...))`
+        for mtype in matrix_types:
+            code = self._replace_mul_assign_constructor(code, mtype)
+
+        # Step 3: Handle `expr *= matrixVar` → `expr = mul(expr, matrixVar)`
+        for mvar in matrix_vars:
+            pattern = re.compile(
+                r'(\b\w+(?:\.\w+)?)\s*\*=\s*(' + re.escape(mvar) + r')\b'
+            )
+            code = pattern.sub(r'\1 = mul(\1, \2)', code)
+
+        # Step 4: Handle `expr * floatNxN(...)` → `mul(expr, floatNxN(...))`
+        for mtype in matrix_types:
+            code = self._replace_mul_constructor(code, mtype)
+
+        # Step 5: Handle `expr * matrixVar` → `mul(expr, matrixVar)`
+        for mvar in matrix_vars:
+            pattern = re.compile(
+                r'(\b\w+(?:\.\w+)*)\s*\*\s*(' + re.escape(mvar) + r')\b'
+            )
+            code = pattern.sub(r'mul(\1, \2)', code)
+
+        return code
+
+    def _find_balanced_parens(self, code: str, start: int) -> int:
+        """Find the index of the closing ')' that balances the '(' at position start.
+        Returns -1 if not found."""
+        if start >= len(code) or code[start] != '(':
+            return -1
+        depth = 0
+        for i in range(start, len(code)):
+            if code[i] == '(':
+                depth += 1
+            elif code[i] == ')':
+                depth -= 1
+                if depth == 0:
+                    return i
+        return -1
+
+    def _replace_mul_assign_constructor(self, code: str, mtype: str) -> str:
+        """Replace `expr *= floatNxN(...)` with `expr = mul(expr, floatNxN(...))`
+        using balanced parenthesis matching."""
+        # Find pattern: <ident> *= <mtype>(
+        pattern = re.compile(
+            r'(\b\w+(?:\.\w+)?)\s*\*=\s*(' + re.escape(mtype) + r')\s*\('
+        )
+        offset = 0
+        while True:
+            m = pattern.search(code, offset)
+            if not m:
+                break
+            lhs = m.group(1)
+            type_name = m.group(2)
+            paren_start = m.end() - 1  # position of '('
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+            constructor = code[m.start(2):paren_end + 1]  # e.g. "float2x2(...)"
+            replacement = f'{lhs} = mul({lhs}, {constructor})'
+            code = code[:m.start()] + replacement + code[paren_end + 1:]
+            offset = m.start() + len(replacement)
+        return code
+
+    def _replace_mul_constructor(self, code: str, mtype: str) -> str:
+        """Replace `expr * floatNxN(...)` with `mul(expr, floatNxN(...))`
+        using balanced parenthesis matching.
+
+        Handles both simple variable left operands (e.g. `st * float2x2(...)`)
+        and constructor call left operands (e.g. `float3(st, 1.) * float3x3(...)`).
+        """
+        # Find all occurrences of `* <mtype>(`
+        star_mtype_pattern = re.compile(r'\*\s*(' + re.escape(mtype) + r')\s*\(')
+        offset = 0
+        while True:
+            m = star_mtype_pattern.search(code, offset)
+            if not m:
+                break
+            star_pos = m.start()  # position of '*'
+
+            # Check it's not *= 
+            if star_pos + 1 < len(code) and code[star_pos + 1] == '=':
+                offset = m.end()
+                continue
+
+            # Find the right operand: floatNxN(...) with balanced parens
+            rhs_type_start = m.start(1)
+            rhs_paren_start = m.end() - 1  # position of '('
+            rhs_paren_end = self._find_balanced_parens(code, rhs_paren_start)
+            if rhs_paren_end == -1:
+                offset = m.end()
+                continue
+            rhs = code[rhs_type_start:rhs_paren_end + 1]
+
+            # Find the left operand by scanning backwards from star_pos
+            lhs_end = star_pos
+            # Skip whitespace before *
+            i = lhs_end - 1
+            while i >= 0 and code[i] in ' \t':
+                i -= 1
+            if i < 0:
+                offset = rhs_paren_end + 1
+                continue
+
+            # Check if left operand ends with ')' — could be a constructor call
+            if code[i] == ')':
+                # Scan backwards for matching '('
+                depth = 0
+                j = i
+                while j >= 0:
+                    if code[j] == ')':
+                        depth += 1
+                    elif code[j] == '(':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j -= 1
+                if j < 0:
+                    offset = rhs_paren_end + 1
+                    continue
+                # Now scan backwards from '(' to find the function/type name
+                k = j - 1
+                while k >= 0 and code[k] in ' \t':
+                    k -= 1
+                # Collect the identifier (e.g. float3, myFunc)
+                ident_end = k + 1
+                while k >= 0 and (code[k].isalnum() or code[k] == '_'):
+                    k -= 1
+                lhs_start = k + 1
+                lhs = code[lhs_start:i + 1]
+            else:
+                # Simple identifier (possibly with swizzle like st.xy)
+                ident_end = i + 1
+                while i >= 0 and (code[i].isalnum() or code[i] == '_' or code[i] == '.'):
+                    i -= 1
+                lhs_start = i + 1
+                lhs = code[lhs_start:ident_end]
+
+            if not lhs.strip():
+                offset = rhs_paren_end + 1
+                continue
+
+            replacement = f'mul({lhs.strip()}, {rhs})'
+            code = code[:lhs_start] + replacement + code[rhs_paren_end + 1:]
+            offset = lhs_start + len(replacement)
+        return code
 
     # ── Shadertoy 内置变量处理 ──
 
