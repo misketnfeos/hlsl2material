@@ -214,6 +214,17 @@ class ShadertoyConverter:
                 main_body = code
 
             # Step 4: 转换辅助函数
+            # Pre-collect matrix-returning function names from all helpers
+            # so individual helper conversion can see cross-function matrix types
+            self._known_matrix_funcs = set()
+            matrix_types_glsl = {'mat2': 'float2x2', 'mat3': 'float3x3', 'mat4': 'float4x4'}
+            for mtype_glsl, mtype_hlsl in matrix_types_glsl.items():
+                for func in helpers:
+                    for fm in re.finditer(r'\b(?:' + re.escape(mtype_glsl) + r'|' + re.escape(mtype_hlsl) + r')\s+(\w+)\s*\(', func):
+                        fname = fm.group(1)
+                        if fname not in ('if', 'for', 'while', 'return', 'define'):
+                            self._known_matrix_funcs.add(fname)
+
             converted_helpers = []
             for func in helpers:
                 converted = self._convert_glsl_to_hlsl(func)
@@ -655,6 +666,14 @@ class ShadertoyConverter:
                 # Do NOT expand if it's a variable name like 'pieces', 'color', etc.
                 if re.match(r'^-?(\d+\.?\d*|\d*\.\d+)[fF]?$', arg):
                     return f'{type_name}({", ".join([arg] * dim)})'
+                # Check if the argument is a scalar expression (not a known vector
+                # variable or constructor). If so, expand by duplicating.
+                # Scalar expressions: arithmetic like "ac * 0.02", function calls
+                # returning scalar like "sin(x)", single scalar variables, etc.
+                # NOT scalar: variable names that could be vectors (handled by
+                # _convert_truncation_constructors for actual truncation)
+                if self._is_scalar_expression(arg):
+                    return f'{type_name}({", ".join([arg] * dim)})'
                 # Not a scalar literal — leave as-is (truncation cast)
                 return m.group(0)
 
@@ -662,6 +681,62 @@ class ShadertoyConverter:
             code = result
 
         return code
+
+    def _is_scalar_expression(self, expr: str) -> bool:
+        """Check if an expression is likely a scalar (not a vector/matrix).
+
+        Returns True for:
+          - Arithmetic expressions: "ac * 0.02", "x + y", "a - b * c"
+          - Single scalar variables: "x", "alpha"
+          - Scalar function calls: "sin(x)", "abs(y)"
+          - Numeric literals: "1.0", "42" (though these are handled elsewhere)
+
+        Returns False for:
+          - Vector constructors: "float2(...)", "float3(...)"
+          - Expressions with swizzle: "v.xy", "pos.xyz"
+          - Expressions that might be vectors (bare identifiers could be vectors,
+            but if they contain arithmetic operators they're likely scalar math)
+        """
+        expr = expr.strip()
+        if not expr:
+            return False
+
+        # If it contains a vector/matrix constructor, it's not scalar
+        if re.search(r'\b(float[234]|int[234]|half[234]|float[234]x[234])\s*\(', expr):
+            return False
+
+        # If it ends with a swizzle of length > 1, it's a vector
+        swizzle_match = re.search(r'\.[xyzwrgba]{2,}$', expr)
+        if swizzle_match:
+            return False
+
+        # If it contains arithmetic operators (+, -, *, /), it's likely scalar math
+        # (vector math would use the same operators but that's a rare case for
+        # single-arg constructors in practice)
+        if re.search(r'[+\-*/]', expr):
+            return True
+
+        # Single identifier without operators — could be scalar or vector.
+        # We can't tell without type info, so be conservative and return False
+        # to let _convert_truncation_constructors handle it.
+        if re.match(r'^[a-zA-Z_]\w*$', expr):
+            return False
+
+        # Single-component swizzle: v.x, v.r — that's a scalar
+        if re.search(r'\.[xyzwrgba]$', expr):
+            return True
+
+        # Function call without vector constructor (e.g. sin(x), abs(y))
+        # These typically return scalar
+        if re.match(r'^[a-zA-Z_]\w*\s*\(', expr):
+            return True
+
+        # Parenthesized expression — check inside
+        if expr.startswith('(') and expr.endswith(')'):
+            inner = expr[1:-1].strip()
+            return self._is_scalar_expression(inner)
+
+        return False
 
     def _convert_matrix_constructors(self, code: str) -> str:
         """Convert GLSL-style matrix constructors to HLSL row-vector form.
@@ -923,11 +998,17 @@ class ShadertoyConverter:
         matrix_types = {'float2x2', 'float3x3', 'float4x4'}
 
         # Step 1: Collect declared matrix variable names from the code
+        # Exclude function declarations (where the name is followed by '(')
         matrix_vars = set()
         for mtype in matrix_types:
             decl_pattern = re.compile(r'\b' + re.escape(mtype) + r'\s+(\w+)\b')
             for m in decl_pattern.finditer(code):
-                matrix_vars.add(m.group(1))
+                var_name = m.group(1)
+                # Check if followed by '(' — that's a function declaration, not a variable
+                after = code[m.end():].lstrip()
+                if after.startswith('('):
+                    continue
+                matrix_vars.add(var_name)
 
         # Step 2: Handle `expr *= floatNxN(...)` → `expr = mul(expr, floatNxN(...))`
         for mtype in matrix_types:
@@ -962,6 +1043,209 @@ class ShadertoyConverter:
                 r'\b(' + re.escape(mvar) + r')\s*\*\s*(\w+(?:\.\w+)*)\b'
             )
             code = pattern.sub(r'mul(\1, \2)', code)
+
+        # Step 8: Collect function names that return matrix types
+        # Also include pre-collected matrix functions from all helpers
+        matrix_return_funcs = set(getattr(self, '_known_matrix_funcs', set()))
+        for mtype in matrix_types:
+            # Match function definitions: float2x2 funcName(
+            func_def_pattern = re.compile(
+                r'\b' + re.escape(mtype) + r'\s+(\w+)\s*\('
+            )
+            for fm in func_def_pattern.finditer(code):
+                fname = fm.group(1)
+                # Exclude keywords and type names
+                if fname not in ('if', 'for', 'while', 'return', 'define',
+                                 'float2x2', 'float3x3', 'float4x4'):
+                    matrix_return_funcs.add(fname)
+
+        # Step 9: Handle multiplication with functions returning matrix types
+        for fname in matrix_return_funcs:
+            code = self._replace_mul_matrix_func(code, fname)
+
+        return code
+
+    def _replace_mul_matrix_func(self, code: str, func_name: str) -> str:
+        """Replace multiplication involving a function call that returns a matrix type.
+
+        Handles:
+          - expr *= funcName(...)        → expr = mul(expr, funcName(...))
+          - expr *= X.funcName(...)      → expr = mul(expr, X.funcName(...))
+          - expr * funcName(...)         → mul(expr, funcName(...))
+          - expr * X.funcName(...)       → mul(expr, X.funcName(...))
+          - funcName(...) * expr         → mul(funcName(...), expr)
+          - X.funcName(...) * expr       → mul(X.funcName(...), expr)
+        """
+        # --- Part A: Handle `expr *= [prefix.]funcName(...)` ---
+        mul_assign_pat = re.compile(
+            r'(\b\w+(?:\.\w+)?)\s*\*=\s*(\w+\.)?(' + re.escape(func_name) + r')\s*\('
+        )
+        offset = 0
+        while True:
+            m = mul_assign_pat.search(code, offset)
+            if not m:
+                break
+            lhs = m.group(1)
+            prefix = m.group(2) or ''  # e.g. 'F.' or ''
+            paren_start = m.end() - 1
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+            func_call = prefix + func_name + code[paren_start:paren_end + 1]
+            replacement = f'{lhs} = mul({lhs}, {func_call})'
+            code = code[:m.start()] + replacement + code[paren_end + 1:]
+            offset = m.start() + len(replacement)
+
+        # --- Part B: Handle `expr * [prefix.]funcName(...)` (matrix on right) ---
+        star_func_pat = re.compile(
+            r'\*\s*(\w+\.)?(' + re.escape(func_name) + r')\s*\('
+        )
+        offset = 0
+        while True:
+            m = star_func_pat.search(code, offset)
+            if not m:
+                break
+            star_pos = m.start()
+
+            # Make sure it's not *=
+            if star_pos + 1 < len(code) and code[star_pos + 1] == '=':
+                offset = m.end()
+                continue
+
+            # Check if already inside a mul() call
+            pre = code[:star_pos].rstrip()
+            if pre.endswith('mul(') or pre.endswith('mul ('):
+                offset = m.end()
+                continue
+
+            prefix = m.group(1) or ''
+            paren_start = m.end() - 1
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+            rhs = prefix + func_name + code[paren_start:paren_end + 1]
+
+            # Scan backwards for the left operand
+            i = star_pos - 1
+            while i >= 0 and code[i] in ' \t\n\r':
+                i -= 1
+            if i < 0:
+                offset = paren_end + 1
+                continue
+
+            if code[i] == ')':
+                # Left operand ends with ) — scan for matching (
+                depth = 0
+                j = i
+                while j >= 0:
+                    if code[j] == ')':
+                        depth += 1
+                    elif code[j] == '(':
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j -= 1
+                if j < 0:
+                    offset = paren_end + 1
+                    continue
+                k = j - 1
+                while k >= 0 and code[k] in ' \t':
+                    k -= 1
+                while k >= 0 and (code[k].isalnum() or code[k] == '_' or code[k] == '.'):
+                    k -= 1
+                lhs_start = k + 1
+                lhs = code[lhs_start:i + 1]
+            else:
+                ident_end = i + 1
+                while i >= 0 and (code[i].isalnum() or code[i] == '_' or code[i] == '.'):
+                    i -= 1
+                lhs_start = i + 1
+                lhs = code[lhs_start:ident_end]
+
+            if not lhs.strip():
+                offset = paren_end + 1
+                continue
+
+            replacement = f'mul({lhs.strip()}, {rhs})'
+            code = code[:lhs_start] + replacement + code[paren_end + 1:]
+            offset = lhs_start + len(replacement)
+
+        # --- Part C: Handle `[prefix.]funcName(...) * expr` (matrix on left) ---
+        func_left_pat = re.compile(
+            r'(\w+\.)?\b(' + re.escape(func_name) + r')\s*\('
+        )
+        offset = 0
+        while True:
+            m = func_left_pat.search(code, offset)
+            if not m:
+                break
+            prefix = m.group(1) or ''
+            full_start = m.start(1) if m.group(1) else m.start(2)
+            paren_start = m.end() - 1
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+
+            # Check if there's a `*` after the closing paren
+            j = paren_end + 1
+            while j < len(code) and code[j] in ' \t\n\r':
+                j += 1
+            if j >= len(code) or code[j] != '*':
+                offset = paren_end + 1
+                continue
+            # Make sure it's not *=
+            if j + 1 < len(code) and code[j + 1] == '=':
+                offset = paren_end + 1
+                continue
+
+            # Check if already inside mul()
+            pre = code[:full_start].rstrip()
+            if pre.endswith('mul(') or pre.endswith('mul ('):
+                offset = paren_end + 1
+                continue
+
+            star_pos = j
+            lhs = code[full_start:paren_end + 1]
+
+            # Find the right operand after *
+            k = star_pos + 1
+            while k < len(code) and code[k] in ' \t\n\r':
+                k += 1
+            if k >= len(code):
+                offset = paren_end + 1
+                continue
+
+            rhs_start = k
+            if code[k].isalpha() or code[k] == '_':
+                while k < len(code) and (code[k].isalnum() or code[k] == '_'):
+                    k += 1
+                # Check for constructor call or method call
+                while k < len(code) and code[k] in ' \t':
+                    k += 1
+                if k < len(code) and code[k] == '(':
+                    rhs_pe = self._find_balanced_parens(code, k)
+                    if rhs_pe != -1:
+                        k = rhs_pe + 1
+                # Check for swizzle
+                if k < len(code) and code[k] == '.':
+                    k += 1
+                    while k < len(code) and code[k].isalpha():
+                        k += 1
+                rhs = code[rhs_start:k].strip()
+            else:
+                offset = paren_end + 1
+                continue
+
+            if not rhs:
+                offset = paren_end + 1
+                continue
+
+            replacement = f'mul({lhs}, {rhs})'
+            code = code[:full_start] + replacement + code[k:]
+            offset = full_start + len(replacement)
 
         return code
 
@@ -1870,6 +2154,14 @@ class ShadertoyConverter:
             func_names = self._extract_func_names(func_bodies)
             main_code = self._rewrite_calls_to_struct(main_code, func_names, instance_name)
 
+            # 3b. After rewriting to F.func(), convert matrix-returning function
+            # multiplications to mul() calls. This must happen after struct rewriting
+            # because _convert_matrix_multiply (which runs during GLSL→HLSL conversion)
+            # only sees the main_code separately from the helper definitions.
+            matrix_return_funcs = self._extract_matrix_return_funcs(func_bodies)
+            for fname in matrix_return_funcs:
+                main_code = self._replace_mul_matrix_func(main_code, fname)
+
             # 4. Rewrite main_code: replace global variable references with F.<varname>
             # so that main code and struct functions share the same state
             if global_var_members:
@@ -2032,6 +2324,22 @@ class ShadertoyConverter:
                 if name not in ('if', 'for', 'while', 'return', 'define'):
                     names.append(name)
         return list(dict.fromkeys(names))  # deduplicate preserving order
+
+    def _extract_matrix_return_funcs(self, func_bodies: List[str]) -> List[str]:
+        """Extract function names that return a matrix type from helper code blocks."""
+        matrix_types = {'float2x2', 'float3x3', 'float4x4'}
+        names = []
+        for mtype in matrix_types:
+            func_pattern = re.compile(
+                r'\b' + re.escape(mtype) + r'\s+(\w+)\s*\('
+            )
+            for body in func_bodies:
+                for m in func_pattern.finditer(body):
+                    fname = m.group(1)
+                    if fname not in ('if', 'for', 'while', 'return', 'define',
+                                     'float2x2', 'float3x3', 'float4x4'):
+                        names.append(fname)
+        return list(dict.fromkeys(names))
 
     def _rewrite_calls_to_struct(self, code: str, func_names: List[str],
                                   instance_name: str) -> str:
