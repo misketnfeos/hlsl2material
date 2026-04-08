@@ -199,9 +199,9 @@ FUNCTION_MAP = {
     # Step / SmoothStep
     # SmoothStep: 在 _convert_function_call 中用原生节点组合实现 (Subtract/Divide/Saturate/Multiply)
     #   不使用 MaterialFunctionCall，因为 T3D 粘贴时 FunctionInputs 数量不匹配会导致引擎崩溃
-    # Step: 使用 If 节点模拟 step(edge, x) = x >= edge ? 1 : 0
+    # Step: UE4 没有原生 Step 节点，使用 CustomExpression 实现
     'smoothstep': ('MaterialExpressionMultiply', 'SmoothStep', []),  # 占位，实际由特殊处理分支实现
-    'step':       ('MaterialExpressionIf',                   'Step',       ['A', 'B', 'A > B', 'A == B', 'A < B']),
+    'step':       ('MaterialExpressionCustom',               'Step',       ['Input0', 'Input1']),
     # 向量长度/距离
     # VectorLength 在当前引擎不存在 → 回退为 Distance(x, 0)，在 _convert_function_call 中特殊处理
     'length':     ('MaterialExpressionDistance',           'Length→Distance', ['A', 'B']),
@@ -224,6 +224,7 @@ FUNCTION_MAP = {
 CUSTOM_EXPR_CODE = {
     'exp':        'return exp(Input0);',
     'exp2':       'return exp2(Input0);',
+    'step':       'return step(Input0, Input1);',
 }
 
 # 引擎内置 MaterialFunction 路径映射
@@ -878,28 +879,6 @@ class NodeMapper:
             result.inputs = {'A': mul_tt, 'B': sub_3_2t}
             
             return result
-
-        # ── 特殊处理: step(edge, x) → If 节点模拟 ──
-        # step(edge, x) = x >= edge ? 1 : 0
-        if func_name == 'step':
-            arg_nodes = [self._convert_expr(arg) for arg in expr.args]
-            one = self._make_constant(1.0, expr.line)
-            zero = self._make_constant(0.0, expr.line)
-            if_node = self._make_node(
-                'MaterialExpressionIf', 'Step(If)',
-                ['A', 'B', 'A > B', 'A == B', 'A < B'],
-                source_line=expr.line,
-            )
-            if len(arg_nodes) >= 2:
-                # x >= edge → A=x, B=edge, A>B=1, A==B=1, A<B=0
-                if_node.inputs = {
-                    'A': arg_nodes[1],   # x
-                    'B': arg_nodes[0],   # edge
-                    'A > B': one,
-                    'A == B': one,
-                    'A < B': zero,
-                }
-            return if_node
 
         # 查映射表
         if func_name in FUNCTION_MAP:
