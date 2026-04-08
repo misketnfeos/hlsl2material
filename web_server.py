@@ -707,16 +707,6 @@ select:hover {{
     padding: 2px 10px 0;
     word-break: break-all;
 }}
-.reroute-dot {{
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #666;
-    border: 1px solid #888;
-    z-index: 5;
-}}
-
 /* ── 缩放指示 ── */
 .zoom-badge {{
     position: absolute;
@@ -911,42 +901,28 @@ select:hover {{
         <span>连线: <b id="stat-conns">0</b></span>
     </div>
     <div class="actions">
-        <!-- T3D 模式按钮 -->
-        <div class="t3d-actions" id="t3d-actions">
-            <button class="btn btn-primary" id="btn-parse-t3d" title="解析 T3D 文本 (Ctrl+Enter)">
-                ▶ 解析节点
-            </button>
-            <button class="btn btn-convert" id="btn-convert-custom" title="将 Custom 节点中的 HLSL 代码转换为原生材质节点">
-                🔄 转换节点
-            </button>
-            <button class="btn btn-accent" id="btn-copy-t3d" title="复制 T3D 节点到剪贴板，在 UE4 材质编辑器 Ctrl+V 粘贴">
-                📋 复制 UE4 节点
-            </button>
-            <button class="btn" id="btn-reverse" title="将节点图反向转换为 HLSL 代码">
-                🔄 转为 HLSL
-            </button>
-        </div>
-        <!-- HLSL 模式按钮 -->
+        <!-- HLSL 模式: 加载示例 -->
         <div class="hlsl-actions" id="hlsl-actions" style="display:none;">
             <select id="example-select" title="加载示例">
                 <option value="">📦 加载示例...</option>
                 {example_options}
             </select>
-            <button class="btn btn-primary" id="btn-convert" title="转换 (Ctrl+Enter)">
-                ▶ 转换
-            </button>
-            <button class="btn btn-accent" id="btn-copy-hlsl-t3d" title="转换 HLSL 并复制 T3D 节点到剪贴板">
-                📋 复制 UE4 节点
-            </button>
-            <button class="btn" id="btn-ue4" title="生成 UE4 脚本">
-                📄 UE4 脚本
-            </button>
-            <button class="btn btn-execute" id="btn-execute" title="自动在 UE4 中执行 (完整闭环)">
-                🚀 自动执行
+        </div>
+        <!-- T3D 模式: 解析按钮 -->
+        <div class="t3d-actions" id="t3d-actions">
+            <button class="btn btn-secondary" id="btn-parse-t3d" title="解析 T3D 文本并显示节点图">
+                ▶ 解析
             </button>
         </div>
-        <button class="btn" id="btn-reset" title="重置视图">
-            ⟳ 重置
+        <!-- 统一按钮 (两种模式共用) -->
+        <button class="btn btn-primary" id="btn-to-nodes" title="转换为原生材质节点">
+            ▶ 转节点
+        </button>
+        <button class="btn btn-convert" id="btn-to-custom" title="转换为 Custom Node">
+            ▶ 转 Custom Node
+        </button>
+        <button class="btn btn-accent" id="btn-copy" title="复制 T3D 到剪贴板，在 UE4 材质编辑器 Ctrl+V 粘贴">
+            📋 复制 UE4 节点
         </button>
     </div>
 </div>
@@ -1035,22 +1011,7 @@ select:hover {{
     </div>
 </div>
 
-<!-- ── UE4 脚本弹窗 ── -->
-<div class="modal-overlay" id="modal-overlay">
-    <div class="modal">
-        <div class="modal-header">
-            <span>📋 UE4 Editor Python 脚本</span>
-            <button class="btn" id="btn-modal-close">✕ 关闭</button>
-        </div>
-        <div class="modal-body">
-            <pre id="ue4-script-content">// 先转换 HLSL 代码后再生成脚本</pre>
-        </div>
-        <div class="modal-footer">
-            <button class="btn btn-accent" id="btn-copy-script">📋 复制脚本</button>
-            <button class="btn btn-primary" id="btn-download-script">💾 下载 .py</button>
-        </div>
-    </div>
-</div>
+
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -1082,8 +1043,8 @@ const $charCount = document.getElementById('char-count');
 const $charCountT3d = document.getElementById('char-count-t3d');
 const $zoomBadge = document.getElementById('zoom-badge');
 const $toast = document.getElementById('toast');
-const $modal = document.getElementById('modal-overlay');
-const $scriptContent = document.getElementById('ue4-script-content');
+// const $modal removed
+// const $scriptContent removed
 const $editorPanel = document.getElementById('editor-panel');
 const $resizeHandle = document.getElementById('resize-handle');
 
@@ -1101,8 +1062,8 @@ function switchMode(mode) {{
     
     // 切换显示
     const isT3D = mode === 't3d';
-    document.getElementById('t3d-actions').style.display = isT3D ? 'flex' : 'none';
     document.getElementById('hlsl-actions').style.display = isT3D ? 'none' : 'flex';
+    document.getElementById('t3d-actions').style.display = isT3D ? 'flex' : 'none';
     document.getElementById('editor-header-t3d').style.display = isT3D ? 'flex' : 'none';
     document.getElementById('editor-header-hlsl').style.display = isT3D ? 'none' : 'flex';
     $t3dInput.style.display = isT3D ? '' : 'none';
@@ -1173,54 +1134,18 @@ async function parseT3D() {{
 }}
 
 async function copyT3DToClipboard() {{
-    // 复制当前的 T3D 文本到剪贴板
+    // 复制当前的 T3D 文本到剪贴板（不强制重新转换，直接复制上次转换结果）
     let textToCopy = '';
     
     if (currentMode === 't3d') {{
         textToCopy = currentT3DText || $t3dInput.value.trim();
-        if (!textToCopy) {{
-            showToast('没有可复制的 T3D 文本，请先粘贴并解析节点', 'error');
-            return;
-        }}
     }} else {{
-        // HLSL/GLSL 模式：先转换为 T3D
-        const code = $input.value.trim();
-        if (!code) {{
-            showToast('请先输入 HLSL 或 GLSL 代码', 'error');
-            return;
-        }}
-        
-        // 检测是否为 GLSL
-        const preDetect = detectCodeTypeLocal(code);
-        if (preDetect === 'glsl') {{
-            showInfo([{{ type: 'success', text: '检测到 GLSL，自动转换中...' }}]);
-        }}
-        
-        try {{
-            const resp = await fetch('/api/hlsl-to-t3d', {{
-                method: 'POST',
-                headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ code: code }}),
-            }});
-            const data = await resp.json();
-            if (data.error) {{
-                showToast('转换失败: ' + data.error, 'error');
-                return;
-            }}
-            textToCopy = data.t3d_output;
-            
-            // 同时更新图显示
-            if (data.graph) {{
-                currentGraphData = data.graph;
-                renderGraph(currentGraphData);
-                document.getElementById('stat-nodes').textContent = data.graph.stats.node_count;
-                document.getElementById('stat-inputs').textContent = data.graph.stats.input_count;
-                document.getElementById('stat-conns').textContent = data.graph.stats.connection_count;
-            }}
-        }} catch (err) {{
-            showToast('请求失败: ' + err.message, 'error');
-            return;
-        }}
+        textToCopy = currentT3DText;
+    }}
+    
+    if (!textToCopy) {{
+        showToast('请先进行转换（转节点 或 转 Custom Node）', 'error');
+        return;
     }}
     
     try {{
@@ -1356,6 +1281,7 @@ async function convertHLSL() {{
 
         currentGraphData = data.graph;
         currentUE4Script = data.ue4_script || '';
+        currentT3DText = data.t3d_output || '';
         renderGraph(currentGraphData);
 
         // 更新统计
@@ -1488,50 +1414,8 @@ function renderGraph(graphData) {{
         return {{ x: nodeX + dx, y: nodeY + dy }};
     }}
 
-    // Reroute 逻辑
-    const outgoingCount = {{}};
-    graphData.connections.forEach(c => {{
-        outgoingCount[c.from_id] = (outgoingCount[c.from_id] || 0) + 1;
-    }});
-
-    const REROUTE_OFFSET = 40;
-
     // 延迟绘制连线（等待 DOM 布局完成）
     setTimeout(() => {{
-        const rerouteSourceCoords = {{}};
-        graphData.connections.forEach(c => {{
-            if (!rerouteSourceCoords[c.from_id]) {{
-                const outDot = outputDots[c.from_id];
-                if (outDot) rerouteSourceCoords[c.from_id] = getDotCenter(outDot);
-            }}
-        }});
-
-        const reroutePoints = {{}};
-        Object.keys(outgoingCount).forEach(fromId => {{
-            const fid = parseInt(fromId);
-            if (outgoingCount[fid] >= 2 && rerouteSourceCoords[fid]) {{
-                const src = rerouteSourceCoords[fid];
-                let sumY = 0, cnt = 0;
-                graphData.connections.forEach(c => {{
-                    if (c.from_id === fid) {{
-                        const inDot = inputDots[c.to_id + '-' + c.to_pin_index];
-                        if (inDot) {{ sumY += getDotCenter(inDot).y; cnt++; }}
-                    }}
-                }});
-                reroutePoints[fid] = {{ x: src.x + REROUTE_OFFSET, y: cnt > 0 ? sumY / cnt : src.y }};
-            }}
-        }});
-
-        // 绘制 reroute 小圆点
-        Object.entries(reroutePoints).forEach(([fid, pt]) => {{
-            const dot = document.createElement('div');
-            dot.className = 'reroute-dot';
-            dot.style.left = (pt.x - 5) + 'px';
-            dot.style.top = (pt.y - 5) + 'px';
-            $canvas.appendChild(dot);
-        }});
-
-        // 绘制连线
         graphData.connections.forEach(c => {{
             const outDot = outputDots[c.from_id];
             const inDot = inputDots[c.to_id + '-' + c.to_pin_index];
@@ -1541,31 +1425,13 @@ function renderGraph(graphData) {{
             const color = srcNode ? srcNode.color : '#555';
             const from = getDotCenter(outDot);
             const to = getDotCenter(inDot);
-            const rr = reroutePoints[c.from_id];
 
-            if (rr) {{
-                // 第一段：源 pin → reroute 点
-                const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                p1.setAttribute('d', `M${{from.x}},${{from.y}} L${{rr.x}},${{rr.y}}`);
-                p1.setAttribute('stroke', color);
-                p1.style.pointerEvents = 'stroke';
-                $svg.appendChild(p1);
-
-                // 第二段：reroute 点 → 目标 pin
-                const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                const dx2 = Math.abs(rr.x - to.x) * 0.5;
-                p2.setAttribute('d', `M${{rr.x}},${{rr.y}} C${{rr.x + dx2}},${{rr.y}} ${{to.x - dx2}},${{to.y}} ${{to.x}},${{to.y}}`);
-                p2.setAttribute('stroke', color);
-                p2.style.pointerEvents = 'stroke';
-                $svg.appendChild(p2);
-            }} else {{
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                const dx = Math.abs(from.x - to.x) * 0.5;
-                path.setAttribute('d', `M${{from.x}},${{from.y}} C${{from.x + dx}},${{from.y}} ${{to.x - dx}},${{to.y}} ${{to.x}},${{to.y}}`);
-                path.setAttribute('stroke', color);
-                path.style.pointerEvents = 'stroke';
-                $svg.appendChild(path);
-            }}
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            const dx = Math.abs(from.x - to.x) * 0.5;
+            path.setAttribute('d', `M${{from.x}},${{from.y}} C${{from.x + dx}},${{from.y}} ${{to.x - dx}},${{to.y}} ${{to.x}},${{to.y}}`);
+            path.setAttribute('stroke', color);
+            path.style.pointerEvents = 'stroke';
+            $svg.appendChild(path);
         }});
     }}, 50);
 
@@ -1652,27 +1518,133 @@ document.addEventListener('mouseup', () => {{
 // 按钮事件
 // ═══════════════════════════════════════════════════════════
 
-// T3D 模式按钮
-document.getElementById('btn-parse-t3d').addEventListener('click', parseT3D);
-document.getElementById('btn-convert-custom').addEventListener('click', convertCustomNodes);
-document.getElementById('btn-copy-t3d').addEventListener('click', copyT3DToClipboard);
+// 转 Custom Node 功能
+// ═══════════════════════════════════════════════════════════
 
-// HLSL 模式按钮
-document.getElementById('btn-convert').addEventListener('click', convertHLSL);
-document.getElementById('btn-copy-hlsl-t3d').addEventListener('click', copyT3DToClipboard);
-
-document.getElementById('btn-reset').addEventListener('click', () => {{
-    if (currentGraphData) {{
-        let maxX = 0, maxY = 0;
-        currentGraphData.nodes.forEach(n => {{
-            if (n.x + 300 > maxX) maxX = n.x + 300;
-            if (n.y + 200 > maxY) maxY = n.y + 200;
-        }});
-        autoFitView(maxX, maxY);
+async function reverseToCustomNode() {{
+    // T3D 模式: 从输入框取 T3D 文本
+    // HLSL 模式: 如果已经有节点图，用当前 T3D 数据
+    let t3dText = '';
+    if (currentMode === 't3d') {{
+        t3dText = $t3dInput.value.trim();
     }} else {{
-        scale = 1; panX = 0; panY = 0;
-        updateTransform();
+        t3dText = currentT3DText;
     }}
+    
+    if (!t3dText) {{
+        showToast('请先转换为节点或粘贴 T3D 文本', 'error');
+        return;
+    }}
+
+    $loading.classList.add('show');
+    try {{
+        const resp = await fetch('/api/reverse-convert', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ t3d_text: t3dText }}),
+        }});
+        const data = await resp.json();
+        if (data.error) {{
+            showToast('反向转换失败: ' + data.error, 'error');
+            $loading.classList.remove('show');
+            return;
+        }}
+        if (data.t3d_output) {{
+            currentT3DText = data.t3d_output;
+            // 重新解析 T3D 并渲染节点图
+            try {{
+                const parseResp = await fetch('/api/parse-t3d', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ t3d_text: data.t3d_output }}),
+                }});
+                const parseData = await parseResp.json();
+                if (parseData.graph) {{
+                    currentGraphData = parseData.graph;
+                    renderGraph(currentGraphData);
+                    document.getElementById('stat-nodes').textContent = parseData.graph.stats.node_count;
+                    document.getElementById('stat-inputs').textContent = parseData.graph.stats.input_count;
+                    document.getElementById('stat-conns').textContent = parseData.graph.stats.connection_count;
+                }}
+            }} catch (e) {{ console.warn('Re-parse failed:', e); }}
+        }}
+        showToast('已转换为 Custom Node', 'success');
+    }} catch (err) {{
+        showToast('请求失败: ' + err.message, 'error');
+    }}
+    $loading.classList.remove('show');
+}}
+
+async function hlslToCustomNode() {{
+    const code = $input.value.trim();
+    if (!code) {{
+        showToast('请输入 HLSL / GLSL 代码', 'error');
+        return;
+    }}
+
+    $loading.classList.add('show');
+    try {{
+        const resp = await fetch('/api/hlsl-to-custom-node', {{
+            method: 'POST',
+            headers: {{ 'Content-Type': 'application/json' }},
+            body: JSON.stringify({{ code: code }}),
+        }});
+        const data = await resp.json();
+        if (data.error) {{
+            showToast('转换失败: ' + data.error, 'error');
+            $loading.classList.remove('show');
+            return;
+        }}
+        if (data.t3d_output) {{
+            currentT3DText = data.t3d_output;
+            // 重新解析 T3D 并渲染节点图
+            try {{
+                const parseResp = await fetch('/api/parse-t3d', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ t3d_text: data.t3d_output }}),
+                }});
+                const parseData = await parseResp.json();
+                if (parseData.graph) {{
+                    currentGraphData = parseData.graph;
+                    renderGraph(currentGraphData);
+                    document.getElementById('stat-nodes').textContent = parseData.graph.stats.node_count;
+                    document.getElementById('stat-inputs').textContent = parseData.graph.stats.input_count;
+                    document.getElementById('stat-conns').textContent = parseData.graph.stats.connection_count;
+                }}
+            }} catch (e) {{ console.warn('Re-parse failed:', e); }}
+        }}
+        const inputs = (data.input_names || []).join(', ');
+        showToast('已转换为 Custom Node' + (inputs ? ' (输入: ' + inputs + ')' : ''), 'success');
+    }} catch (err) {{
+        showToast('请求失败: ' + err.message, 'error');
+    }}
+    $loading.classList.remove('show');
+}}
+
+// 统一按钮事件
+document.getElementById('btn-to-nodes').addEventListener('click', () => {{
+    if (currentMode === 't3d') {{
+        convertCustomNodes();
+    }} else {{
+        convertHLSL();
+    }}
+}});
+
+document.getElementById('btn-to-custom').addEventListener('click', () => {{
+    if (currentMode === 't3d') {{
+        // T3D 模式: 反向转换为 Custom Node
+        reverseToCustomNode();
+    }} else {{
+        // HLSL 模式: 直接包装为 Custom Node
+        hlslToCustomNode();
+    }}
+}});
+
+document.getElementById('btn-copy').addEventListener('click', copyT3DToClipboard);
+
+document.getElementById('btn-parse-t3d').addEventListener('click', () => {{
+    parseT3D();
 }});
 
 document.getElementById('example-select').addEventListener('change', function() {{
@@ -1685,56 +1657,18 @@ document.getElementById('example-select').addEventListener('change', function() 
     }}
 }});
 
-document.getElementById('btn-ue4').addEventListener('click', () => {{
-    if (!currentUE4Script) {{
-        showToast('请先转换 HLSL 代码', 'error');
-        return;
-    }}
-    $scriptContent.textContent = currentUE4Script;
-    $modal.classList.add('show');
-}});
+// btn-ue4 handler removed
 
-document.getElementById('btn-modal-close').addEventListener('click', () => {{
-    $modal.classList.remove('show');
-}});
-$modal.addEventListener('click', e => {{
-    if (e.target === $modal) $modal.classList.remove('show');
-}});
-
-document.getElementById('btn-copy-script').addEventListener('click', () => {{
-    navigator.clipboard.writeText(currentUE4Script).then(() => {{
-        showToast('已复制到剪贴板！', 'success');
-    }}).catch(() => {{
-        // 降级方案
-        const ta = document.createElement('textarea');
-        ta.value = currentUE4Script;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        document.body.removeChild(ta);
-        showToast('已复制到剪贴板！', 'success');
-    }});
-}});
-
-document.getElementById('btn-download-script').addEventListener('click', () => {{
-    const blob = new Blob([currentUE4Script], {{ type: 'text/plain' }});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'M_Generated_ue4_script.py';
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('下载开始', 'success');
-}});
+// 弹窗相关事件已移除
 
 // ═══════════════════════════════════════════════════════════
 // UE4 自动执行
 // ═══════════════════════════════════════════════════════════
 
-const $execPanel = document.getElementById('exec-panel');
-const $execStatus = document.getElementById('exec-status');
-const $execDetails = document.getElementById('exec-details');
-const $btnExecute = document.getElementById('btn-execute');
+// const $execPanel removed
+// const $execStatus removed
+// const $execDetails removed
+// const $btnExecute removed
 
 // 检查 UE4 环境
 async function checkUE4Env() {{
@@ -1846,7 +1780,7 @@ function displayExecResult(data) {{
     }}
 }}
 
-document.getElementById('btn-execute').addEventListener('click', executeInUE4);
+// btn-execute handler removed
 document.getElementById('btn-exec-close').addEventListener('click', () => {{
     $execPanel.classList.remove('show');
 }});
@@ -1932,43 +1866,7 @@ function detectCodeTypeLocal(code) {{
 }}
 
 // 反向转换按钮事件
-document.getElementById('btn-reverse').addEventListener('click', async () => {{
-    const text = $t3dInput.value.trim();
-    if (!text) {{
-        showToast('请先粘贴 UE4 节点 T3D 文本', 'error');
-        return;
-    }}
-
-    $loading.classList.add('show');
-
-    try {{
-        const resp = await fetch('/api/reverse-convert', {{
-            method: 'POST',
-            headers: {{ 'Content-Type': 'application/json' }},
-            body: JSON.stringify({{ t3d_text: text }}),
-        }});
-
-        const data = await resp.json();
-
-        if (data.error) {{
-            showInfo([{{ type: 'error', text: '反向转换失败: ' + data.error }}]);
-            showToast('反向转换失败', 'error');
-        }} else {{
-            const msgs = [{{ type: 'success', text: '✓ 反向转换完成！生成的 HLSL 代码：' }}];
-            msgs.push({{ type: 'success', text: data.hlsl_code }});
-            showInfo(msgs);
-            showToast('反向转换成功！', 'success');
-            // 同时将生成的 HLSL 代码放入 HLSL 输入框
-            $input.value = data.hlsl_code;
-            $charCount.textContent = $input.value.length + ' 字符';
-        }}
-    }} catch (err) {{
-        showInfo([{{ type: 'error', text: '请求失败: ' + err.message }}]);
-        showToast('请求失败', 'error');
-    }}
-
-    $loading.classList.remove('show');
-}});
+// btn-reverse handler removed (functionality moved to btn-to-custom)
 
 // ═══════════════════════════════════════════════════════════
 // 工具函数
@@ -2080,6 +1978,8 @@ class HLSLHandler(BaseHTTPRequestHandler):
             self._handle_reverse_convert()
         elif parsed.path == '/api/detect-type':
             self._handle_detect_type()
+        elif parsed.path == '/api/hlsl-to-custom-node':
+            self._handle_hlsl_to_custom_node()
         else:
             self.send_response(404)
             self.send_header('Content-Type', 'application/json')
@@ -2119,12 +2019,17 @@ class HLSLHandler(BaseHTTPRequestHandler):
             graph = hlsl_to_material_graph(hlsl_code)
             graph_data = graph_to_json(graph)
 
+            # 生成 T3D（供复制到 UE4）
+            from t3d_generator import generate_t3d_from_material_graph
+            t3d_output = generate_t3d_from_material_graph(graph)
+
             # 生成 UE4 脚本
             ue4_script = generate_ue4_script(graph, name, '/Game/Materials')
 
             result = {
                 'graph': graph_data,
                 'ue4_script': ue4_script,
+                't3d_output': t3d_output,
                 'detected_type': detected_type,
             }
 
@@ -2386,7 +2291,7 @@ class HLSLHandler(BaseHTTPRequestHandler):
             self._send_json({'error': f'Custom 节点转换错误: {str(e)}'})
 
     def _handle_reverse_convert(self):
-        """反向转换: MaterialGraph/T3D → HLSL 代码"""
+        """反向转换: T3D 原生节点 → Custom Node T3D"""
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(content_length).decode('utf-8')
@@ -2397,14 +2302,10 @@ class HLSLHandler(BaseHTTPRequestHandler):
                 self._send_json({'error': 'T3D 文本为空'})
                 return
             
-            # 使用 ReverseConverter 进行反向转换
-            converter = ReverseConverter()
-            hlsl_code = converter.convert(t3d_text)
-            
-            self._send_json({
-                'hlsl_code': hlsl_code,
-                'success': True,
-            })
+            # 使用新的反向转换函数
+            from reverse_converter import reverse_to_custom_node_t3d
+            result = reverse_to_custom_node_t3d(t3d_text)
+            self._send_json(result)
             
         except Exception as e:
             traceback.print_exc()
@@ -2427,6 +2328,60 @@ class HLSLHandler(BaseHTTPRequestHandler):
             
         except Exception as e:
             self._send_json({'error': str(e)})
+
+    def _handle_hlsl_to_custom_node(self):
+        """HLSL 代码直接转换为 Custom Node T3D（不经过节点解析）"""
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(content_length).decode('utf-8')
+            data = json.loads(body)
+            
+            code = data.get('code', '')
+            if not code.strip():
+                self._send_json({'error': '代码为空'})
+                return
+            
+            # 自动检测代码类型
+            detected_type = detect_code_type(code)
+            hlsl_code = code
+            
+            # 如果是 GLSL，先转换为 HLSL
+            if detected_type == 'glsl':
+                try:
+                    converter = ShadertoyConverter()
+                    hlsl_code = converter.convert_to_hlsl(code)
+                except Exception as e:
+                    self._send_json({'error': f'GLSL 转换失败: {str(e)}'})
+                    return
+            
+            # 使用 AutoInputGenerator 提取输入参数
+            from auto_input_generator import AutoInputGenerator
+            input_gen = AutoInputGenerator()
+            input_vars = input_gen.extract_inputs(hlsl_code=hlsl_code)
+            input_names = [v.name for v in input_vars]
+            
+            # 推断输出类型（简单启发式）
+            output_type = 'CMOT_Float3'  # 默认 float3
+            
+            # 生成 Custom Node T3D
+            from t3d_generator import generate_t3d_from_custom_hlsl
+            t3d_output = generate_t3d_from_custom_hlsl(
+                hlsl_code,
+                input_names=input_names,
+                output_type=output_type,
+                description='Generated from HLSL'
+            )
+            
+            self._send_json({
+                't3d_output': t3d_output,
+                'input_names': input_names,
+                'output_type': output_type,
+                'detected_type': detected_type,
+            })
+            
+        except Exception as e:
+            traceback.print_exc()
+            self._send_json({'error': f'HLSL 转 Custom Node 错误: {str(e)}'})
 
     def _send_json(self, data: dict):
         """发送 JSON 响应"""

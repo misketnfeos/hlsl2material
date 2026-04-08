@@ -128,14 +128,22 @@ def _gen_node_t3d(node: T3DGraphNode, offset_x: int = 0, offset_y: int = 0) -> s
             # 处理位置偏移
             if key == 'MaterialExpressionEditorX':
                 try:
-                    value = str(int(value) + offset_x)
-                except ValueError:
+                    value = str(int(float(value)) + offset_x)
+                except (ValueError, TypeError):
                     pass
             elif key == 'MaterialExpressionEditorY':
                 try:
-                    value = str(int(value) + offset_y)
-                except ValueError:
+                    value = str(int(float(value)) + offset_y)
+                except (ValueError, TypeError):
                     pass
+            # 对于 Code 属性，进行转义处理（从 python 字符串转为 T3D 转义格式）
+            elif key == 'Code':
+                # value 可能包含真实的换行符（来自 _unescape_t3d_string），需要转义为 \r\n
+                if isinstance(value, str) and value.startswith('"') and value.endswith('"'):
+                    code_inner = value[1:-1]
+                    # 转义代码: 双反斜杠，转义双引号，转义换行为 \r\n
+                    code_escaped = code_inner.replace('\\', '\\\\').replace('"', '\\"').replace('\r\n', '\\r\\n').replace('\r', '').replace('\n', '\\r\\n')
+                    value = f'"{code_escaped}"'
             parts.append(f'      {key}={value}')
         parts.append('   End Object')
     
@@ -356,7 +364,23 @@ def generate_t3d_from_material_graph(graph, start_x: int = 0, start_y: int = 0) 
     """
     from graph_visualizer import compute_layout
     
-    positions = compute_layout(graph)
+    # Custom Node 图没有 output_node 时，用 target='ue4' 并自动检测布局模式
+    is_custom_node_mode = (
+        graph.output_node is None
+        and any(n.ue_class == 'MaterialExpressionCustom' for n in graph.nodes)
+    )
+    if is_custom_node_mode:
+        # 将 Custom Node 临时设为 output_node，使 compute_layout 能正确分层
+        for n in graph.nodes:
+            if n.ue_class == 'MaterialExpressionCustom':
+                graph.output_node = n
+                break
+    
+    positions = compute_layout(graph, target='ue4')
+    
+    if is_custom_node_mode:
+        graph.output_node = None  # 恢复
+    
     node_by_id = {n.id: n for n in graph.nodes}
     
     # 为每个节点分配 T3D 名称和 UUID
@@ -369,6 +393,21 @@ def generate_t3d_from_material_graph(graph, start_x: int = 0, start_y: int = 0) 
         node_names[node.id] = f'MaterialGraphNode_{idx}'
         expr_names[node.id] = f'{node.ue_class}_{idx}'
         node_guids[node.id] = _make_guid(f'node_{node.id}')
+    
+    # 构建引用重映射表：old_name → new_name（用于修复属性中的内部引用）
+    # 格式: OldGraphName.OldExprName → NewGraphName.NewExprName
+    ref_rename_map = {}  # old_ref_str → new_ref_str
+    for node in graph.nodes:
+        old_graph = getattr(node, '_t3d_graph_name', '')
+        old_expr = getattr(node, '_t3d_expr_name', '')
+        if old_graph and old_expr:
+            new_graph = node_names[node.id]
+            new_expr = expr_names[node.id]
+            # 替换完整引用: "OldGraph.OldExpr" → "NewGraph.NewExpr"
+            ref_rename_map[f'{old_graph}.{old_expr}'] = f'{new_graph}.{new_expr}'
+            # 也替换不带引号的 expression 引用
+            ref_rename_map[old_expr] = new_expr
+            ref_rename_map[old_graph] = new_graph
     
     # 为每个节点的每个 pin 分配 GUID
     for node in graph.nodes:
@@ -389,7 +428,7 @@ def generate_t3d_from_material_graph(graph, start_x: int = 0, start_y: int = 0) 
         text = _gen_material_node_t3d(
             node, idx, x, y,
             node_names, expr_names, node_guids, pin_guids,
-            node_by_id
+            node_by_id, ref_rename_map
         )
         node_texts.append(text)
     
@@ -400,7 +439,7 @@ def _gen_material_node_t3d(
     node, idx: int, x: int, y: int,
     node_names: dict, expr_names: dict,
     node_guids: dict, pin_guids: dict,
-    node_by_id: dict
+    node_by_id: dict, ref_rename_map: dict = None
 ) -> str:
     """生成单个 MaterialNode 的 T3D 文本"""
     graph_name = node_names[node.id]
@@ -422,7 +461,7 @@ def _gen_material_node_t3d(
     parts.append(f'   Begin Object Name="{expr_name}"')
     
     # 输出属性
-    _write_expression_properties(parts, node, x, y)
+    _write_expression_properties(parts, node, x, y, ref_rename_map)
     
     parts.append(f'   End Object')
     
@@ -435,6 +474,18 @@ def _gen_material_node_t3d(
     
     # 6. NodeGuid
     parts.append(f'   NodeGuid={node_guids[node.id]}')
+    
+    # 6.5. bCanRenameNode（Parameter 节点需要此标志，否则 UE 显示名称时会带引号）
+    _RENAMEABLE_CLASSES = {
+        'MaterialExpressionScalarParameter',
+        'MaterialExpressionVectorParameter',
+        'MaterialExpressionTextureObjectParameter',
+        'MaterialExpressionTextureSampleParameter2D',
+        'MaterialExpressionStaticBoolParameter',
+        'MaterialExpressionStaticSwitchParameter',
+    }
+    if ue_class in _RENAMEABLE_CLASSES:
+        parts.append(f'   bCanRenameNode=True')
     
     # 7. Pin
     input_names = list(node.inputs.keys()) if node.inputs else node.input_names
@@ -513,7 +564,22 @@ def _gen_material_node_t3d(
     return '\r\n'.join(parts)
 
 
-def _write_expression_properties(parts: list, node, x: int, y: int):
+def _apply_ref_rename(value: str, ref_rename_map: dict) -> str:
+    """在属性值字符串中替换旧的节点/表达式引用为新名称
+    
+    处理形如: Expression=MaterialExpressionFunctionInput'"OldGraph.OldExpr"'
+    替换为:   Expression=MaterialExpressionFunctionInput'"NewGraph.NewExpr"'
+    """
+    if not ref_rename_map:
+        return value
+    result = value
+    # 按长度降序排序，优先替换长的（避免短名称误匹配）
+    for old_ref, new_ref in sorted(ref_rename_map.items(), key=lambda x: -len(x[0])):
+        result = result.replace(old_ref, new_ref)
+    return result
+
+
+def _write_expression_properties(parts: list, node, x: int, y: int, ref_rename_map: dict = None):
     """输出 MaterialExpression 的特定属性"""
     ue_class = node.ue_class
     props = node.properties or {}
@@ -585,7 +651,7 @@ def _write_expression_properties(parts: list, node, x: int, y: int):
             # Custom 节点的 HLSL 代码
             # UE4 T3D 格式要求：换行符用 \n 转义，双引号用 \" 转义
             code = props['Code']
-            code_escaped = code.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '')
+            code_escaped = code.replace('\\', '\\\\').replace('"', '\\"').replace('\r\n', '\\r\\n').replace('\r', '').replace('\n', '\\r\\n')
             parts.append(f'      Code="{code_escaped}"')
         if 'Description' in props:
             desc = props['Description'].replace('"', '\\"')
@@ -605,6 +671,23 @@ def _write_expression_properties(parts: list, node, x: int, y: int):
             parts.append(f'      Inputs({len(node.input_names)})')
             for idx, iname in enumerate(node.input_names):
                 parts.append(f'      Inputs({idx})=(InputName="{iname}")')
+        # AdditionalOutputs（额外输出 pin）
+        if 'AdditionalOutputs' in props:
+            for idx, out in enumerate(props['AdditionalOutputs']):
+                out_name = out.get('OutputName', f'Output{idx}')
+                out_type = out.get('OutputType', '')
+                if out_type:
+                    parts.append(f'      AdditionalOutputs({idx})=(OutputName="{out_name}",OutputType={out_type})')
+                else:
+                    parts.append(f'      AdditionalOutputs({idx})=(OutputName="{out_name}")')
+        # bShowOutputNameOnPin
+        if props.get('bShowOutputNameOnPin'):
+            parts.append(f'      bShowOutputNameOnPin=True')
+        # Outputs（所有输出 pin 定义）
+        if 'Outputs' in props:
+            for idx, out in enumerate(props['Outputs']):
+                out_name = out.get('OutputName', 'return')
+                parts.append(f'      Outputs({idx})=(OutputName="{out_name}")')
     
     elif ue_class == 'MaterialExpressionComponentMask':
         for comp in ('R', 'G', 'B', 'A'):
@@ -633,11 +716,98 @@ def _write_expression_properties(parts: list, node, x: int, y: int):
         if 'SpeedY' in props:
             parts.append(f'      SpeedY={props["SpeedY"]}')
     
+    elif ue_class == 'MaterialExpressionMaterialFunctionCall':
+        # MaterialFunction 引用（资产路径）
+        if 'MaterialFunction' in props:
+            parts.append(f'      MaterialFunction={props["MaterialFunction"]}')
+        # FunctionInputs 数组
+        if 'FunctionInputs' in props:
+            fi_list = props['FunctionInputs']
+            for idx, fi in enumerate(fi_list):
+                # 每个元素是原始 T3D 字符串或 dict
+                if isinstance(fi, str):
+                    parts.append(f'      FunctionInputs({idx})={_apply_ref_rename(fi, ref_rename_map)}')
+                elif isinstance(fi, dict):
+                    fi_parts = []
+                    for fk, fv in fi.items():
+                        fi_parts.append(f'{fk}={_apply_ref_rename(str(fv), ref_rename_map)}')
+                    parts.append(f'      FunctionInputs({idx})=({",".join(fi_parts)})')
+        # FunctionOutputs 数组
+        if 'FunctionOutputs' in props:
+            fo_list = props['FunctionOutputs']
+            for idx, fo in enumerate(fo_list):
+                if isinstance(fo, str):
+                    parts.append(f'      FunctionOutputs({idx})={_apply_ref_rename(fo, ref_rename_map)}')
+                elif isinstance(fo, dict):
+                    fo_parts = []
+                    for fk, fv in fo.items():
+                        fo_parts.append(f'{fk}={_apply_ref_rename(str(fv), ref_rename_map)}')
+                    parts.append(f'      FunctionOutputs({idx})=({",".join(fo_parts)})')
+    
     # 通用：输出所有未被处理的属性
     handled = {'R', 'G', 'B', 'A', 'value', 'Constant', 'ParameterName', 'DefaultValue',
                'CoordinateIndex', 'UTiling', 'VTiling', 'Texture', 'Code', 'Description',
                'OutputType', 'ClampMode', 'MinDefault', 'MaxDefault', 'ConstAlpha',
-               'EqualsThreshold', 'SpeedX', 'SpeedY', 'Inputs', 'Group'}
+               'EqualsThreshold', 'SpeedX', 'SpeedY', 'Inputs', 'Group',
+               'MaterialExpressionEditorX', 'MaterialExpressionEditorY',
+               'MaterialExpressionGuid', 'Material',
+               'AdditionalOutputs', 'bShowOutputNameOnPin', 'Outputs',
+               'MaterialFunction', 'FunctionInputs', 'FunctionOutputs'}
     for key, value in props.items():
         if key not in handled:
-            parts.append(f'      {key}={value}')
+            val_str = _apply_ref_rename(str(value), ref_rename_map) if ref_rename_map else str(value)
+            parts.append(f'      {key}={val_str}')
+
+
+def generate_t3d_from_custom_hlsl(
+    hlsl_code: str,
+    input_names: list = None,
+    output_type: str = 'CMOT_Float3',
+    description: str = 'Custom HLSL',
+    start_x: int = 0,
+    start_y: int = 0,
+) -> str:
+    """将原始 HLSL 代码直接包装成 MaterialExpressionCustom T3D 格式
+    
+    Args:
+        hlsl_code: 原始 HLSL 代码
+        input_names: 输入变量名列表
+        output_type: 输出类型 (CMOT_Float1/2/3/4)
+        description: 节点描述
+        start_x: 节点初始 X 坐标
+        start_y: 节点初始 Y 坐标
+    
+    Returns:
+        可直接粘贴到 UE4 的 T3D 文本
+    """
+    from node_mapper import MaterialNode, MaterialGraph
+    
+    # 1. Create single MaterialNode (Code stored raw; escaping happens in _write_expression_properties)
+    node = MaterialNode(
+        ue_class='MaterialExpressionCustom',
+        display_name='Custom',
+        pos_x=start_x,
+        pos_y=start_y,
+    )
+    node.properties = {
+        'Code': hlsl_code,
+        'Description': description,
+        'OutputType': output_type,
+    }
+    
+    # Add input specifications if provided
+    if input_names:
+        node.properties['Inputs'] = [{'InputName': name} for name in input_names]
+        node.input_names = input_names
+    
+    # 3. Create MaterialGraph with single node, set as output_node for layout
+    graph = MaterialGraph()
+    graph.nodes.append(node)
+    graph.output_node = node  # Custom Node 作为布局的"输出端"，参数节点排在其左侧
+    
+    # 4. Auto-create input nodes (builtin variables + parameters) and connect to Custom Node
+    from auto_input_generator import auto_create_inputs_for_graph
+    auto_create_inputs_for_graph(graph, hlsl_code, custom_node_x=start_x, custom_node_y=start_y)
+    
+    # 5. Generate T3D
+    return generate_t3d_from_material_graph(graph)

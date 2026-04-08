@@ -94,6 +94,40 @@ class T3DParseResult:
 
 
 # ═══════════════════════════════════════════════════════════
+# 字符串转义处理
+# ═══════════════════════════════════════════════════════════
+
+def _unescape_t3d_string(s: str) -> str:
+    """反转义 T3D 属性字符串
+    
+    T3D 中字符串属性（如 Code）使用的转义序列：
+      \\r\\n  → 换行（CRLF，优先处理）
+      \\n    → 换行（LF）
+      \\r    → 回车（CR）
+      \\t    → tab
+      \\"    → 引号
+      \\\\    → 反斜杠
+    """
+    if not s:
+        return s
+    
+    # 先处理双反斜杠，用占位符暂存，避免干扰后续替换
+    PLACEHOLDER = '\x00BACKSLASH\x00'
+    s = s.replace('\\\\', PLACEHOLDER)
+    
+    # 转义序列替换（Windows 风格 CRLF 优先处理）
+    s = s.replace('\\r\\n', '\n')
+    s = s.replace('\\r', '\r')
+    s = s.replace('\\n', '\n')
+    s = s.replace('\\t', '\t')
+    s = s.replace('\\"', '"')
+    
+    # 还原真正的反斜杠
+    s = s.replace(PLACEHOLDER, '\\')
+    return s
+
+
+# ═══════════════════════════════════════════════════════════
 # 解析核心
 # ═══════════════════════════════════════════════════════════
 
@@ -255,7 +289,12 @@ class T3DParser:
             m_prop = self._re_property.match(line)
             if m_prop:
                 key, value = m_prop.group(1), m_prop.group(2)
-                obj.properties[key] = value
+                # 对于 Code 属性，进行反转义（从 T3D 的转义格式恢复真实换行符）
+                if key == 'Code' and value.startswith('"') and value.endswith('"'):
+                    unescaped_inner = _unescape_t3d_string(value[1:-1])
+                    obj.properties[key] = f'"{unescaped_inner}"'
+                else:
+                    obj.properties[key] = value
 
             i += 1
 
@@ -288,13 +327,13 @@ class T3DParser:
         """应用节点属性"""
         if key == 'NodePosX':
             try:
-                node.node_pos_x = int(value)
-            except ValueError:
+                node.node_pos_x = int(float(value))
+            except (ValueError, TypeError):
                 node.node_pos_x = 0
         elif key == 'NodePosY':
             try:
-                node.node_pos_y = int(value)
-            except ValueError:
+                node.node_pos_y = int(float(value))
+            except (ValueError, TypeError):
                 node.node_pos_y = 0
         elif key == 'NodeGuid':
             node.node_guid = value

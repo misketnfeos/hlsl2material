@@ -374,6 +374,8 @@ class ReverseConverter:
 
     def _emit_param(self, node: MaterialNode, param_type: str) -> str:
         name = node.properties.get('ParameterName', node.display_name)
+        # 去除 T3D 解析残留的引号
+        name = name.strip('"')
         self._input_params[name] = param_type
         return name
 
@@ -623,8 +625,9 @@ class ReverseConverter:
             return node.inputs.get(node.input_names[index])
         return None
 
-    def _format_float(self, value: float) -> str:
+    def _format_float(self, value) -> str:
         """格式化浮点数"""
+        value = float(value)
         if value == int(value) and abs(value) < 10000:
             return f"{int(value)}.0"
         # 移除尾零
@@ -752,3 +755,152 @@ def reverse_from_hlsl(hlsl_source: str) -> str:
     from node_mapper import hlsl_to_material_graph
     graph = hlsl_to_material_graph(hlsl_source)
     return material_graph_to_hlsl(graph)
+
+
+# ═══════════════════════════════════════════════════════════
+# T3D → Custom Node T3D 反向转换
+# ═══════════════════════════════════════════════════════════
+
+# 输出类型映射
+HLSL_TO_CMOT = {
+    'float':  'CMOT_Float1',
+    'float2': 'CMOT_Float2',
+    'float3': 'CMOT_Float3',
+    'float4': 'CMOT_Float4',
+}
+
+
+def _build_material_graph_from_t3d(t3d_text: str):
+    """从 T3D 文本构建 MaterialGraph（含节点连接）"""
+    from t3d_parser import T3DParser
+    from custom_converter import _t3d_node_to_material_node
+
+    parser = T3DParser()
+    parse_result = parser.parse(t3d_text)
+
+    if parse_result.errors:
+        raise ValueError('\n'.join(parse_result.errors))
+
+    graph = MaterialGraph()
+
+    # T3D node name → MaterialNode
+    name_to_mat_node: Dict[str, 'MaterialNode'] = {}
+
+    for t3d_node in parse_result.nodes:
+        mat_node = _t3d_node_to_material_node(t3d_node, graph)
+        name_to_mat_node[t3d_node.name] = mat_node
+
+    # 建立连接：遍历输入 pin 的 linked_to
+    for t3d_node in parse_result.nodes:
+        if t3d_node.name not in name_to_mat_node:
+            continue
+        mat_node = name_to_mat_node[t3d_node.name]
+
+        for pin in t3d_node.pins:
+            if pin.direction == 'EGPD_Output' or not pin.linked_to:
+                continue
+            for src_node_name, src_pin_id in pin.linked_to:
+                if src_node_name in name_to_mat_node:
+                    mat_node.inputs[pin.pin_name] = name_to_mat_node[src_node_name]
+                    if pin.pin_name not in mat_node.input_names:
+                        mat_node.input_names.append(pin.pin_name)
+
+    # 识别输出节点：找不被任何其他节点引用为输入的节点
+    referenced_ids = set()
+    for node in graph.nodes:
+        for inp_node in node.inputs.values():
+            if inp_node is not None:
+                referenced_ids.add(inp_node.id)
+
+    output_candidates = [n for n in graph.nodes if n.id not in referenced_ids]
+    if not output_candidates:
+        output_candidates = graph.nodes
+
+    # 多个候选时选 pos_x 最大的（最右边）
+    graph.output_node = max(output_candidates, key=lambda n: n.pos_x)
+
+    return graph
+
+
+def reverse_to_custom_node_t3d(t3d_text: str) -> Dict[str, Any]:
+    """将 T3D 原生材质节点反向转换为 Custom Node T3D
+
+    完整流程：T3D 文本 → MaterialGraph → HLSL → Custom Node → T3D
+    复用 generate_t3d_from_custom_hlsl（与 HLSL 模式相同的逻辑），
+    确保输入节点正确创建和连线。
+
+    返回:
+        {
+            't3d_output': str,       # 可粘贴回 UE4 的 Custom Node T3D
+            'hlsl_code': str,        # 生成的 HLSL 代码
+            'input_names': list,     # Custom Node 的输入名称列表
+            'output_type': str,      # 主输出类型 (CMOT_FloatN)
+            'success': True,
+        }
+    """
+    from t3d_generator import generate_t3d_from_custom_hlsl
+
+    # 1. 构建 MaterialGraph
+    graph = _build_material_graph_from_t3d(t3d_text)
+
+    if not graph.nodes:
+        return {'error': '未找到任何可转换的节点'}
+
+    if not graph.output_node:
+        return {'error': '无法确定输出节点'}
+
+    # 2. 反向转换为 HLSL
+    converter = ReverseConverter(graph)
+    hlsl_code = converter.convert()
+
+    # 3. 收集所有输入名称（自定义参数 + 内置变量）
+    #    _input_params 只包含自定义参数，需要另外收集引擎内置变量
+    all_input_names = []
+    for node in graph.nodes:
+        ue = node.ue_class
+        if ue in REVERSE_BUILTIN_VARS:
+            var_name = REVERSE_BUILTIN_VARS[ue]
+            if var_name not in all_input_names:
+                all_input_names.append(var_name)
+        elif ue in ('MaterialExpressionScalarParameter',
+                     'MaterialExpressionVectorParameter',
+                     'MaterialExpressionStaticBoolParameter',
+                     'MaterialExpressionTextureObjectParameter'):
+            param_name = node.properties.get('ParameterName', node.display_name)
+            param_name = param_name.strip('"')
+            if param_name not in all_input_names:
+                all_input_names.append(param_name)
+
+    # 4. 推断主输出类型
+    output_type_hlsl = converter._infer_type(graph.output_node)
+    output_type_cmot = HLSL_TO_CMOT.get(output_type_hlsl, 'CMOT_Float3')
+
+    # 5. 清理 HLSL 代码：去掉注释头，只保留代码体
+    code_lines = []
+    for line in hlsl_code.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('//'):
+            continue
+        if stripped:
+            code_lines.append(line)
+    clean_code = '\n'.join(code_lines)
+
+    # 6. 用 generate_t3d_from_custom_hlsl 生成 T3D
+    #    这和 HLSL 模式用的是完全相同的函数，确保：
+    #    - Code 属性正确转义
+    #    - 输入节点自动创建（auto_create_inputs_for_graph）
+    #    - 引擎内置变量和自定义参数正确连线
+    t3d_output = generate_t3d_from_custom_hlsl(
+        clean_code,
+        input_names=all_input_names,
+        output_type=output_type_cmot,
+        description='Reverse Generated',
+    )
+
+    return {
+        't3d_output': t3d_output,
+        'hlsl_code': clean_code,
+        'input_names': all_input_names,
+        'output_type': output_type_cmot,
+        'success': True,
+    }

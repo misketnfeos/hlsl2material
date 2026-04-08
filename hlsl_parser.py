@@ -136,6 +136,7 @@ CONTROL_KEYWORDS = {
     'else':   TokenType.ELSE,
     'for':    TokenType.FOR,
     'while':  TokenType.WHILE,
+    'struct': TokenType.IDENTIFIER,  # struct 作为特殊标识符处理
 }
 
 ALL_KEYWORDS = {**TYPE_KEYWORDS, **CONTROL_KEYWORDS}
@@ -616,9 +617,28 @@ class Parser:
         if tok.type == TokenType.IF:
             return self.parse_if_statement()
 
+        # struct 定义（跳过整个 struct 块）
+        if tok.type == TokenType.IDENTIFIER and tok.value == 'struct':
+            return self.parse_struct_definition()
+
         # 类型声明
         if tok.type in TYPE_TOKENS:
             return self.parse_var_declaration()
+
+        # IDENTIFIER IDENTIFIER ; 模式 → struct 类型变量声明（如 RainFuncs F;）
+        # 解析为 VarDeclaration，使其被正确识别为已声明变量
+        if (tok.type == TokenType.IDENTIFIER
+                and self.peek(1).type == TokenType.IDENTIFIER
+                and self.peek(2).type == TokenType.SEMICOLON):
+            type_tok = self.advance()   # 跳过类型名（如 RainFuncs）
+            name_tok = self.advance()   # 跳过变量名（如 F）
+            self.advance()              # 跳过分号
+            return VarDeclaration(
+                line=type_tok.line, col=type_tok.col,
+                type_name=type_tok.value,
+                var_name=name_tok.value,
+                initializer=None
+            )
 
         # 表达式语句（赋值、函数调用等）
         return self.parse_expression_statement()
@@ -682,6 +702,23 @@ class Parser:
         else:
             stmt = self.parse_statement()
             return [stmt] if stmt else []
+
+    def parse_struct_definition(self) -> Optional[ASTNode]:
+        """跳过 struct 定义块: struct Name { ... };"""
+        tok = self.advance()  # 跳过 'struct'
+        # 跳过结构体名称（可选）
+        if self.match(TokenType.IDENTIFIER):
+            self.advance()
+        # 跳过 { ... } 块
+        if self.match(TokenType.LBRACE):
+            self._skip_balanced(TokenType.LBRACE, TokenType.RBRACE)
+        # 跳过可能的变量名和分号: struct Foo { } varName;
+        if self.match(TokenType.IDENTIFIER):
+            self.advance()
+        if self.match(TokenType.SEMICOLON):
+            self.advance()
+        self.warnings.append(f"行 {tok.line}: struct 定义已跳过（不转换为材质节点）")
+        return None
 
     def parse_for_loop(self) -> ForLoop:
         """for/while 循环 → 标记为不可转换，抓取原始代码"""
@@ -828,21 +865,32 @@ class Parser:
         return self.parse_postfix()
 
     def parse_postfix(self) -> ASTNode:
-        """后缀操作: .xyz, [i], (args)"""
+        """后缀操作: .xyz, [i], (args), .method(args)"""
         expr = self.parse_primary()
 
         while True:
             if self.match(TokenType.DOT):
                 self.advance()
                 member = self.expect(TokenType.IDENTIFIER)
+                # 如果后面跟着 (，则是成员方法调用（如 F.Drops(...)）
+                if self.match(TokenType.LPAREN):
+                    self.advance()
+                    args = self.parse_arg_list()
+                    self.expect(TokenType.RPAREN)
+                    # 将方法调用表示为 FunctionCall，名称为 "obj.method"
+                    expr = FunctionCall(
+                        line=member.line, col=member.col,
+                        name=f'_method_{member.value}',
+                        args=[expr] + args
+                    )
                 # 判断是否是 swizzle（xyzw / rgba / stpq 的组合）
-                if self._is_swizzle(member.value):
+                elif self._is_swizzle(member.value):
                     expr = SwizzleAccess(
                         line=member.line, col=member.col,
                         object=expr, components=member.value
                     )
                 else:
-                    # 成员访问（不太常见在 Custom HLSL 中）
+                    # 成员访问（struct 字段访问等）
                     expr = SwizzleAccess(
                         line=member.line, col=member.col,
                         object=expr, components=member.value

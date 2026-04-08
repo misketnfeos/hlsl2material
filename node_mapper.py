@@ -95,6 +95,10 @@ class MaterialNode:
     # 源码行号（用于调试）
     source_line: int = 0
 
+    # 原始 T3D 名称（从 T3D 导入时保留，用于引用重映射）
+    _t3d_graph_name: str = ''   # e.g. "MaterialGraphNode_9"
+    _t3d_expr_name: str = ''    # e.g. "MaterialExpressionFunctionInput_2"
+
 
 @dataclass
 class MaterialGraph:
@@ -625,6 +629,9 @@ class NodeMapper:
         # 检查是否是 UE4 引擎内置变量
         if ident.name in ENGINE_BUILTIN_VARS:
             return self._make_builtin_var(ident.name, ident.line)
+        # 检查是否是显式输入参数（来自 Custom Node 的输入 pin 名）
+        if hasattr(self, '_explicit_inputs') and ident.name in self._explicit_inputs:
+            return self._make_param(ident.name, ident.line, dimension=0)
         # 未声明 → 视为输入参数，尝试推断维度
         dimension = self._guess_param_dimension(ident.name)
         return self._make_param(ident.name, ident.line, dimension)
@@ -669,10 +676,22 @@ class NodeMapper:
         # 默认按 float3
         return 3
 
+
     def _convert_binary_op(self, expr: BinaryOp) -> MaterialNode:
         """转换二元运算"""
         left_node = self._convert_expr(expr.left)
         right_node = self._convert_expr(expr.right)
+        
+        # 特殊处理：1.0 - x → MaterialExpressionOneMinus(x)
+        if expr.op == '-':
+            if isinstance(expr.left, NumberLiteral) and expr.left.value == 1.0:
+                # 1.0 - expr → OneMinus
+                node = self._make_node(
+                    'MaterialExpressionOneMinus', 'OneMinus(1-x)',
+                    ['Input'], source_line=expr.line,
+                )
+                node.inputs = {'Input': right_node}
+                return node
 
         if expr.op in BINARY_OP_MAP:
             ue_class, display, inputs = BINARY_OP_MAP[expr.op]
@@ -1197,7 +1216,7 @@ class NodeMapper:
 # 便捷接口
 # ═══════════════════════════════════════════════════════════
 
-def hlsl_to_material_graph(source: str) -> MaterialGraph:
+def hlsl_to_material_graph(source: str, explicit_inputs: List[str] = None) -> MaterialGraph:
     """
     一键将 HLSL 源代码转为材质节点图
     
@@ -1207,6 +1226,7 @@ def hlsl_to_material_graph(source: str) -> MaterialGraph:
 
     参数:
         source: HLSL 代码字符串
+        explicit_inputs: 显式输入参数名列表（用于 Custom Node 转换）
     返回:
         MaterialGraph 材质节点图
     """
@@ -1221,6 +1241,12 @@ def hlsl_to_material_graph(source: str) -> MaterialGraph:
     
     # 3. AST → 材质节点图
     mapper = NodeMapper()
+    
+    # 记录显式输入参数，用于在 _convert_identifier 中识别
+    if explicit_inputs:
+        mapper._explicit_inputs = set(explicit_inputs)
+    else:
+        mapper._explicit_inputs = set()
     
     # 注册预处理拆出的 CustomExpression 片段
     # 使用 _custom_fragment_details 保存完整信息（含参数列表）

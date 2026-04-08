@@ -254,7 +254,8 @@ def convert_custom_in_t3d(t3d_text: str) -> Dict[str, Any]:
             #   - struct 提取 + 函数内联展开
             #   - 复杂函数（含 for/while/多 return）拆分为 CustomExpression
             #   - HLSL 解析 → AST → 材质节点映射
-            graph = hlsl_to_material_graph(code)
+            # 传递 explicit_inputs 以确保参数名正确映射
+            graph = hlsl_to_material_graph(code, explicit_inputs=input_names)
             
             all_converted_graphs.append((info, graph))
             converted_count += 1
@@ -502,6 +503,10 @@ def _t3d_node_to_material_node(t3d_node: T3DGraphNode, graph: MaterialGraph) -> 
         pos_y=t3d_node.node_pos_y,
         properties=properties,
     )
+    # 保留原始 T3D 名称（用于引用重映射）
+    node._t3d_graph_name = t3d_node.name
+    if expr:
+        node._t3d_expr_name = expr.name
     graph._next_id += 1
     graph.nodes.append(node)
     

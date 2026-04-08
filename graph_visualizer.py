@@ -640,15 +640,6 @@ svg path:hover {{ opacity: 1; stroke-width: 3; }}
     padding: 2px 10px 0;
     word-break: break-all;
 }}
-.reroute-dot {{
-    position: absolute;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: #888;
-    border: 1px solid #aaa;
-    z-index: 5;
-}}
 .zoom-info {{
     position: fixed; bottom: 10px; left: 50%;
     transform: translateX(-50%);
@@ -797,63 +788,8 @@ function getDotCenter(dotEl) {{
     return {{ x: nodeX + dx, y: nodeY + dy }};
 }}
 
-// ── Reroute 逻辑：统计一对多连线 ──
-const outgoingCount = {{}};  // from_id → count
-connectionsData.forEach(c => {{
-    outgoingCount[c.from_id] = (outgoingCount[c.from_id] || 0) + 1;
-}});
-
-// reroute 点：当一个源节点连出 >= 2 条线时，在源输出 pin 右边一段距离放一个 reroute 点
-const REROUTE_OFFSET = 40;  // reroute 点距离源输出 pin 的水平距离
-const reroutePoints = {{}};  // from_id → {{x, y}}
-
 // ── 绘制连线（DOM 渲染完成后从实际 pin dot 位置获取坐标）──
 setTimeout(() => {{
-    // 第一遍：计算 reroute 点位置
-    const rerouteSourceCoords = {{}};
-    connectionsData.forEach(c => {{
-        if (!rerouteSourceCoords[c.from_id]) {{
-            const outDot = outputDots[c.from_id];
-            if (outDot) {{
-                const center = getDotCenter(outDot);
-                rerouteSourceCoords[c.from_id] = center;
-            }}
-        }}
-    }});
-
-    // 对于扇出 >= 2 的源节点，计算 reroute 位置
-    // 收集每个源节点连接的所有目标 pin 的 Y 坐标以计算 reroute 的 Y 中心
-    Object.keys(outgoingCount).forEach(fromId => {{
-        const fid = parseInt(fromId);
-        if (outgoingCount[fid] >= 2 && rerouteSourceCoords[fid]) {{
-            const src = rerouteSourceCoords[fid];
-            // reroute Y 取所有目标 pin 的 Y 平均值
-            let sumY = 0;
-            let cnt = 0;
-            connectionsData.forEach(c => {{
-                if (c.from_id === fid) {{
-                    const inDot = inputDots[c.to_id + '-' + c.to_pin_index];
-                    if (inDot) {{
-                        sumY += getDotCenter(inDot).y;
-                        cnt++;
-                    }}
-                }}
-            }});
-            const avgY = cnt > 0 ? sumY / cnt : src.y;
-            reroutePoints[fid] = {{ x: src.x + REROUTE_OFFSET, y: avgY }};
-        }}
-    }});
-
-    // 绘制 reroute 小圆点
-    Object.entries(reroutePoints).forEach(([fid, pt]) => {{
-        const dot = document.createElement('div');
-        dot.className = 'reroute-dot';
-        dot.style.left = (pt.x - 5) + 'px';
-        dot.style.top = (pt.y - 5) + 'px';
-        canvas.appendChild(dot);
-    }});
-
-    // 第二遍：绘制连线
     connectionsData.forEach(c => {{
         const outDot = outputDots[c.from_id];
         const inDot = inputDots[c.to_id + '-' + c.to_pin_index];
@@ -863,34 +799,13 @@ setTimeout(() => {{
         const color = srcNode ? srcNode.color : '#666';
         const from = getDotCenter(outDot);
         const to = getDotCenter(inDot);
-        const hasReroute = reroutePoints[c.from_id];
 
-        if (hasReroute) {{
-            const rr = reroutePoints[c.from_id];
-
-            // 第一段：源 pin → reroute 点（短直线）
-            const p1 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            p1.setAttribute('d', `M${{from.x}},${{from.y}} L${{rr.x}},${{rr.y}}`);
-            p1.setAttribute('stroke', color);
-            p1.style.pointerEvents = 'stroke';
-            svg.appendChild(p1);
-
-            // 第二段：reroute 点 → 目标 pin（贝塞尔）
-            const p2 = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const dx2 = Math.abs(rr.x - to.x) * 0.5;
-            p2.setAttribute('d', `M${{rr.x}},${{rr.y}} C${{rr.x + dx2}},${{rr.y}} ${{to.x - dx2}},${{to.y}} ${{to.x}},${{to.y}}`);
-            p2.setAttribute('stroke', color);
-            p2.style.pointerEvents = 'stroke';
-            svg.appendChild(p2);
-        }} else {{
-            // 普通贝塞尔连线
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const dx = Math.abs(from.x - to.x) * 0.5;
-            path.setAttribute('d', `M${{from.x}},${{from.y}} C${{from.x + dx}},${{from.y}} ${{to.x - dx}},${{to.y}} ${{to.x}},${{to.y}}`);
-            path.setAttribute('stroke', color);
-            path.style.pointerEvents = 'stroke';
-            svg.appendChild(path);
-        }}
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        const dx = Math.abs(from.x - to.x) * 0.5;
+        path.setAttribute('d', `M${{from.x}},${{from.y}} C${{from.x + dx}},${{from.y}} ${{to.x - dx}},${{to.y}} ${{to.x}},${{to.y}}`);
+        path.setAttribute('stroke', color);
+        path.style.pointerEvents = 'stroke';
+        svg.appendChild(path);
     }});
 }}, 50);  // 等 DOM 布局完成
 
