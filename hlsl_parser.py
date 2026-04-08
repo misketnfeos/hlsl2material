@@ -139,6 +139,10 @@ CONTROL_KEYWORDS = {
     'struct': TokenType.IDENTIFIER,  # struct 作为特殊标识符处理
 }
 
+# Modifier keywords that should be silently skipped during parsing
+# (they are valid HLSL but don't affect Custom Node semantics)
+SKIPPED_MODIFIERS = {'const', 'static', 'inline', 'uniform', 'extern'}
+
 ALL_KEYWORDS = {**TYPE_KEYWORDS, **CONTROL_KEYWORDS}
 
 # 所有类型 Token
@@ -259,6 +263,12 @@ class Lexer:
                 self.skip_block_comment()
                 continue
 
+            # Preprocessor directives (#define, #ifdef, #endif, etc.)
+            # Skip the entire line — these are not part of HLSL grammar
+            if ch == '#':
+                self.skip_line_comment()  # reuse: skip to end of line
+                continue
+
             # 数字
             if ch.isdigit() or (ch == '.' and self.peek_next().isdigit()):
                 self.tokens.append(self.read_number())
@@ -266,7 +276,11 @@ class Lexer:
 
             # 标识符/关键字
             if ch.isalpha() or ch == '_':
-                self.tokens.append(self.read_identifier())
+                tok = self.read_identifier()
+                # Skip modifier keywords (const, static, inline, etc.)
+                if tok.value in SKIPPED_MODIFIERS:
+                    continue
+                self.tokens.append(tok)
                 continue
 
             # 双字符运算符

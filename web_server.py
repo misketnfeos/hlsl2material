@@ -2009,7 +2009,12 @@ class HLSLHandler(BaseHTTPRequestHandler):
             if detected_type == 'glsl':
                 try:
                     converter = ShadertoyConverter()
-                    hlsl_code = converter.convert(code)
+                    conv_result = converter.convert(code)
+                    if conv_result.success:
+                        hlsl_code = conv_result.custom_node_code
+                    else:
+                        self._send_json({'error': f'GLSL → HLSL 转换失败: {conv_result.errors}'})
+                        return
                     glsl_converted = True
                 except Exception as e:
                     self._send_json({'error': f'GLSL → HLSL 转换失败: {str(e)}'})
@@ -2232,7 +2237,12 @@ class HLSLHandler(BaseHTTPRequestHandler):
             if detected_type == 'glsl':
                 try:
                     converter = ShadertoyConverter()
-                    hlsl_code = converter.convert(code)
+                    conv_result = converter.convert(code)
+                    if conv_result.success:
+                        hlsl_code = conv_result.custom_node_code
+                    else:
+                        self._send_json({'error': f'GLSL → HLSL 转换失败: {conv_result.errors}'})
+                        return
                     glsl_converted = True
                 except Exception as e:
                     self._send_json({'error': f'GLSL → HLSL 转换失败: {str(e)}'})
@@ -2349,7 +2359,12 @@ class HLSLHandler(BaseHTTPRequestHandler):
             if detected_type == 'glsl':
                 try:
                     converter = ShadertoyConverter()
-                    hlsl_code = converter.convert_to_hlsl(code)
+                    conv_result = converter.convert(code)
+                    if conv_result.success:
+                        hlsl_code = conv_result.custom_node_code
+                    else:
+                        self._send_json({'error': f'GLSL 转换失败: {conv_result.errors}'})
+                        return
                 except Exception as e:
                     self._send_json({'error': f'GLSL 转换失败: {str(e)}'})
                     return

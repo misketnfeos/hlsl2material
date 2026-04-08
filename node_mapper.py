@@ -283,6 +283,9 @@ ENGINE_BUILTIN_VARS = {
     # 屏幕位置
     'ScreenPosition':       ('MaterialExpressionScreenPosition',      'ScreenPos',          []),
     'ScreenUV':             ('MaterialExpressionScreenPosition',      'ScreenPos',          []),
+    # 屏幕/视口尺寸 (iResolution → ViewSize)
+    'ViewSize':             ('MaterialExpressionViewSize',            'ViewSize',           []),
+    'Resolution':           ('MaterialExpressionViewSize',            'ViewSize',           []),
     # 顶点颜色
     'VertexColor':          ('MaterialExpressionVertexColor',         'VertexColor',        []),
     # 反射向量

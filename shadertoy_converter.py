@@ -136,6 +136,14 @@ SHADERTOY_UNIFORMS = {
     'iChannelResolution[3]': {'ue4': 'float3(1024.0, 1024.0, 1.0)', 'desc': 'Channel 3 resolution'},
 }
 
+# UE4 input pin variables that need to be passed into struct as members
+# Maps variable name → HLSL type (used when struct functions reference external inputs)
+UE4_INPUT_VAR_TYPES = {
+    'Time':      'float',
+    'ViewSize':  'float2',
+    'UV':        'float2',
+}
+
 
 # ═══════════════════════════════════════════════════════════
 # 转换结果
@@ -464,12 +472,15 @@ class ShadertoyConverter:
         vec3(1.0) → float3(1.0, 1.0, 1.0)
         vec4(1.0) → float4(1.0, 1.0, 1.0, 1.0)
         vec2(0.5) → float2(0.5, 0.5)
+
+        但不展开非标量参数：
+        float3(someVec4) 保持不变（这是截断/swizzle 操作）
         """
         # 已经在 _map_types 中把 vec3 替换为 float3 了
         # 需要处理 float3(单参数) → float3(x, x, x)
+        # 但只对数字字面量进行展开，变量名保持不变
         for hlsl_type, dim in TYPE_DIMENSIONS.items():
             # 匹配 float3(<single_arg>) — 单参数且不含逗号
-            # 使用回调函数处理
             pattern = re.compile(
                 r'\b(' + re.escape(hlsl_type) + r')\s*\(([^,()]+)\)'
             )
@@ -477,8 +488,13 @@ class ShadertoyConverter:
             def _expand_match(m, dim=dim):
                 type_name = m.group(1)
                 arg = m.group(2).strip()
-                # 检查这是否真的是单参数（不含嵌套括号和逗号）
-                return f'{type_name}({", ".join([arg] * dim)})'
+                # Only expand if the argument is a numeric literal (int or float)
+                # e.g. 1.0, .5, 0, -3.14, 1., 0., etc.
+                # Do NOT expand if it's a variable name like 'pieces', 'color', etc.
+                if re.match(r'^-?(\d+\.?\d*|\d*\.\d+)[fF]?$', arg):
+                    return f'{type_name}({", ".join([arg] * dim)})'
+                # Not a scalar literal — leave as-is (truncation cast)
+                return m.group(0)
 
             result = pattern.sub(_expand_match, code)
             code = result
@@ -639,28 +655,196 @@ class ShadertoyConverter:
     # ── 组装最终代码 ──
 
     def _assemble_custom_node(self, helpers: List[str], main_code: str) -> str:
-        """组装最终的 UE4 Custom Node 代码"""
+        """组装最终的 UE4 Custom Node 代码（struct 封装模式）
+
+        将辅助函数封装在 struct 中，通过实例调用。
+        这是 UE4 Custom Node 中定义多个函数的标准方式。
+
+        输出格式:
+            // 1. struct definition with all helper functions
+            struct ShaderFuncs {
+                float helper1(...) { ... }
+                float2 helper2(...) { ... }
+            };
+            ShaderFuncs F;
+
+            // 2. main logic using F.helper1(), F.helper2()
+            ...
+            return result;
+        """
         parts = []
 
-        # 头部注释
-        parts.append('// ═══════════════════════════════════════════════')
-        parts.append('// Converted from Shadertoy GLSL → UE4 Custom Node')
-        parts.append('// by hlsl2material shadertoy_converter')
-        parts.append('// ═══════════════════════════════════════════════')
-        parts.append('')
+        # Separate globals (#define, const) from actual functions
+        global_lines = []
+        func_bodies = []
+        for h in helpers:
+            if self._is_global_code(h):
+                global_lines.append(h)
+            else:
+                func_bodies.append(h)
 
-        # 辅助函数
-        if helpers:
-            parts.append('// ── Helper Functions ──')
-            for h in helpers:
-                parts.append(h)
+        # 1. Global declarations (#define → static const, const stays as-is)
+        if global_lines:
+            parts.append('// ── Global Declarations ──')
+            for g in global_lines:
+                converted_global = self._convert_defines_to_const(g)
+                parts.append(converted_global)
+            parts.append('')
+
+        # 2. Struct encapsulation
+        if func_bodies:
+            struct_name = 'ShaderFuncs'
+            instance_name = 'F'
+
+            # Detect external input variables used inside struct functions
+            # These need to be declared as struct members so they're accessible
+            struct_code_combined = '\n'.join(func_bodies)
+            external_members = self._detect_external_vars_in_struct(struct_code_combined)
+
+            parts.append(f'// 1. Struct definition with all helper functions')
+            parts.append(f'struct {struct_name}')
+            parts.append('{')
+
+            # Add member variables for external inputs (Time, ViewSize, etc.)
+            if external_members:
+                for var_name, var_type in external_members:
+                    parts.append(f'    {var_type} {var_name};')
                 parts.append('')
 
-        # 主代码
-        parts.append('// ── Main Code ──')
+            for i, func in enumerate(func_bodies):
+                # Indent each function body inside struct
+                indented = self._indent_code(func, '    ')
+                parts.append(indented)
+                if i < len(func_bodies) - 1:
+                    parts.append('')
+
+            parts.append('};')
+            parts.append('')
+            parts.append(f'{struct_name} {instance_name};')
+
+            # Assign external input values to struct members
+            if external_members:
+                for var_name, var_type in external_members:
+                    parts.append(f'{instance_name}.{var_name} = {var_name};')
+
+            parts.append('')
+
+            # 3. Rewrite main_code: replace direct function calls with F.func()
+            # Build a list of function names from the helpers
+            func_names = self._extract_func_names(func_bodies)
+            main_code = self._rewrite_calls_to_struct(main_code, func_names, instance_name)
+
+        # 4. Main logic code
+        parts.append('// 2. Main logic')
         parts.append(main_code)
 
         return '\n'.join(parts)
+
+    def _detect_external_vars_in_struct(self, struct_code: str) -> list:
+        """Detect external input variables (Time, ViewSize, etc.) used inside struct functions.
+
+        These variables come from Custom Node input pins and are not accessible
+        inside struct scope. They need to be declared as struct member variables.
+
+        Returns:
+            List of (var_name, hlsl_type) tuples for variables that need to be
+            struct members.
+        """
+        members = []
+        for var_name, var_type in UE4_INPUT_VAR_TYPES.items():
+            # Check if this variable is referenced in the struct function bodies
+            if re.search(r'\b' + re.escape(var_name) + r'\b', struct_code):
+                members.append((var_name, var_type))
+        return members
+
+    def _is_global_code(self, code: str) -> bool:
+        """Check if a code block is global declarations (#define, const, etc.)
+        rather than a function definition."""
+        stripped = code.strip()
+        # If it contains a function body (has { } with a return type + name pattern), it's a function
+        func_pattern = re.compile(
+            r'^\s*(?:static\s+)?(?:inline\s+)?'
+            r'(?:float[234]?|int[234]?|half[234]?|bool|void|float[234]x[234])'
+            r'\s+\w+\s*\(',
+            re.MULTILINE
+        )
+        if func_pattern.search(stripped):
+            return False
+        # Otherwise it's global code (#define, const, etc.)
+        return True
+
+    def _convert_defines_to_const(self, code: str) -> str:
+        """Convert #define macros to static const declarations.
+
+        #define PI 3.14159  →  static const float PI = 3.14159;
+        #define SIZE 10     →  static const int SIZE = 10;
+
+        This ensures the code can be parsed by hlsl_parser (which doesn't
+        support preprocessor directives) and works correctly in UE4 Custom Nodes.
+        """
+        lines = code.split('\n')
+        result_lines = []
+        for line in lines:
+            stripped = line.strip()
+            # Match #define NAME VALUE (simple constant macros only)
+            m = re.match(r'#define\s+(\w+)\s+(.+)', stripped)
+            if m:
+                name = m.group(1)
+                value = m.group(2).strip()
+                # Determine type from value
+                const_type = self._infer_define_type(value)
+                result_lines.append(f'static const {const_type} {name} = {value};')
+            else:
+                result_lines.append(line)
+        return '\n'.join(result_lines)
+
+    def _infer_define_type(self, value: str) -> str:
+        """Infer the HLSL type for a #define value."""
+        value = value.strip()
+        # Check if it's an expression containing float operations
+        if '.' in value or 'PI' in value or '/' in value:
+            return 'float'
+        # Check if it's a pure integer
+        if re.match(r'^-?\d+$', value):
+            return 'int'
+        # Default to float for expressions
+        return 'float'
+
+    def _indent_code(self, code: str, indent: str) -> str:
+        """Add indentation to each line of code."""
+        lines = code.split('\n')
+        return '\n'.join(indent + line if line.strip() else line for line in lines)
+
+    def _extract_func_names(self, func_bodies: List[str]) -> List[str]:
+        """Extract function names from function definition code blocks."""
+        names = []
+        func_pattern = re.compile(
+            r'(?:float[234]?|int[234]?|half[234]?|bool|void|float[234]x[234])'
+            r'\s+(\w+)\s*\('
+        )
+        for body in func_bodies:
+            for m in func_pattern.finditer(body):
+                name = m.group(1)
+                if name not in ('if', 'for', 'while', 'return', 'define'):
+                    names.append(name)
+        return list(dict.fromkeys(names))  # deduplicate preserving order
+
+    def _rewrite_calls_to_struct(self, code: str, func_names: List[str],
+                                  instance_name: str) -> str:
+        """Rewrite direct function calls to struct instance calls.
+
+        e.g. square(st) → F.square(st)
+             trail(st)  → F.trail(st)
+        """
+        result = code
+        for name in func_names:
+            # Match function call: name( but not already prefixed with F.
+            # Use negative lookbehind to avoid double-prefixing
+            pattern = re.compile(
+                r'(?<!\.)\b' + re.escape(name) + r'\s*\('
+            )
+            result = pattern.sub(f'{instance_name}.{name}(', result)
+        return result
 
     # ── 输入参数收集 ──
 
