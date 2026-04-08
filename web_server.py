@@ -1092,7 +1092,7 @@ async function parseT3D() {{
     $emptyState.style.display = 'none';
 
     try {{
-        const resp = await fetch('/api/parse-t3d', {{
+        const resp = await fetch('api/parse-t3d', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ t3d_text: text }}),
@@ -1180,7 +1180,7 @@ async function convertCustomNodes() {{
     $emptyState.style.display = 'none';
 
     try {{
-        const resp = await fetch('/api/convert-custom', {{
+        const resp = await fetch('api/convert-custom', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ t3d_text: text }}),
@@ -1264,7 +1264,7 @@ async function convertHLSL() {{
     }}
 
     try {{
-        const resp = await fetch('/api/convert', {{
+        const resp = await fetch('api/convert', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ code: code, name: 'M_Generated' }}),
@@ -1538,7 +1538,7 @@ async function reverseToCustomNode() {{
 
     $loading.classList.add('show');
     try {{
-        const resp = await fetch('/api/reverse-convert', {{
+        const resp = await fetch('api/reverse-convert', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ t3d_text: t3dText }}),
@@ -1553,7 +1553,7 @@ async function reverseToCustomNode() {{
             currentT3DText = data.t3d_output;
             // 重新解析 T3D 并渲染节点图
             try {{
-                const parseResp = await fetch('/api/parse-t3d', {{
+                const parseResp = await fetch('api/parse-t3d', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify({{ t3d_text: data.t3d_output }}),
@@ -1584,7 +1584,7 @@ async function hlslToCustomNode() {{
 
     $loading.classList.add('show');
     try {{
-        const resp = await fetch('/api/hlsl-to-custom-node', {{
+        const resp = await fetch('api/hlsl-to-custom-node', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ code: code }}),
@@ -1599,7 +1599,7 @@ async function hlslToCustomNode() {{
             currentT3DText = data.t3d_output;
             // 重新解析 T3D 并渲染节点图
             try {{
-                const parseResp = await fetch('/api/parse-t3d', {{
+                const parseResp = await fetch('api/parse-t3d', {{
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify({{ t3d_text: data.t3d_output }}),
@@ -1673,7 +1673,7 @@ document.getElementById('example-select').addEventListener('change', function() 
 // 检查 UE4 环境
 async function checkUE4Env() {{
     try {{
-        const resp = await fetch('/api/check-env');
+        const resp = await fetch('api/check-env');
         const data = await resp.json();
         return data;
     }} catch (e) {{
@@ -1706,7 +1706,7 @@ async function executeInUE4() {{
     $execDetails.innerHTML = '<div class="exec-detail-row"><span>引擎初始化中，预计 30-60 秒...</span></div>';
 
     try {{
-        const resp = await fetch('/api/execute', {{
+        const resp = await fetch('api/execute', {{
             method: 'POST',
             headers: {{ 'Content-Type': 'application/json' }},
             body: JSON.stringify({{ code: code, name: 'M_Generated' }}),
