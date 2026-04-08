@@ -2362,6 +2362,9 @@ class HLSLHandler(BaseHTTPRequestHandler):
                     conv_result = converter.convert(code)
                     if conv_result.success:
                         hlsl_code = conv_result.custom_node_code
+                        # Use input params already extracted by Shadertoy converter
+                        # (parse_hlsl can't handle struct/for/complex syntax in converted code)
+                        glsl_input_names = [p['name'] for p in conv_result.input_params]
                     else:
                         self._send_json({'error': f'GLSL 转换失败: {conv_result.errors}'})
                         return
@@ -2370,10 +2373,16 @@ class HLSLHandler(BaseHTTPRequestHandler):
                     return
             
             # 使用 AutoInputGenerator 提取输入参数
-            from auto_input_generator import AutoInputGenerator
-            input_gen = AutoInputGenerator()
-            input_vars = input_gen.extract_inputs(hlsl_code=hlsl_code)
-            input_names = [v.name for v in input_vars]
+            if detected_type == 'glsl':
+                # For GLSL-converted code, use the converter's own input params
+                # because the converted HLSL contains struct/for/complex syntax
+                # that hlsl_parser cannot handle
+                input_names = glsl_input_names
+            else:
+                from auto_input_generator import AutoInputGenerator
+                input_gen = AutoInputGenerator()
+                input_vars = input_gen.extract_inputs(hlsl_code=hlsl_code)
+                input_names = [v.name for v in input_vars]
             
             # 推断输出类型（简单启发式）
             output_type = 'CMOT_Float3'  # 默认 float3

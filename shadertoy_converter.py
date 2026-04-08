@@ -276,7 +276,155 @@ class ShadertoyConverter:
                 continue
             # 保留 #define（可能有用户宏）
             processed.append(line)
-        return '\n'.join(processed)
+
+        code = '\n'.join(processed)
+
+        # Expand #define macros (function-like, expression, alias, multi-line)
+        code = self._expand_define_macros(code)
+
+        return code
+
+    def _expand_define_macros(self, code: str) -> str:
+        """Expand all #define macros by text substitution.
+
+        Handles:
+          1. Multi-line continuation (backslash-newline)
+          2. Function-like macros: #define P(z) (vec3(...))
+          3. Expression macros:    #define T (sin(iTime*.6)*64.)
+          4. Alias macros:         #define N normalize
+          5. Simple constant macros: #define PI 3.14159 → kept as static const
+
+        Macros are expanded in definition order. Function-like and expression
+        macros are inlined; simple numeric constants become static const.
+        """
+        # Step 1: Join backslash-continued lines
+        code = re.sub(r'\\\s*\n\s*', ' ', code)
+
+        # Step 2: Collect all #define directives
+        lines = code.split('\n')
+        macros = []  # list of (name, params_or_None, body, line_index)
+        non_define_lines = []
+        define_indices = set()
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            # Function-like macro: #define NAME(params) body
+            m = re.match(r'#define\s+(\w+)\(([^)]*)\)\s*(.*)', stripped)
+            if m:
+                name = m.group(1)
+                params = [p.strip() for p in m.group(2).split(',') if p.strip()]
+                body = m.group(3).strip()
+                macros.append((name, params, body, i))
+                define_indices.add(i)
+                continue
+
+            # Object-like macro: #define NAME body
+            m = re.match(r'#define\s+(\w+)\s+(.*)', stripped)
+            if m:
+                name = m.group(1)
+                body = m.group(2).strip()
+                macros.append((name, None, body, i))
+                define_indices.add(i)
+                continue
+
+            # Bare #define NAME (no body) — skip
+            m = re.match(r'#define\s+(\w+)\s*$', stripped)
+            if m:
+                define_indices.add(i)
+                continue
+
+        # Step 3: Build output lines (without #define lines)
+        result_lines = []
+        for i, line in enumerate(lines):
+            if i not in define_indices:
+                result_lines.append(line)
+
+        result_code = '\n'.join(result_lines)
+
+        # Step 4: Expand macros in the remaining code
+        # Also expand macros within other macro bodies (forward references)
+        # Process in definition order; do multiple passes for cross-references
+        for _pass in range(3):  # max 3 passes for nested macro expansion
+            changed = False
+            for name, params, body, _ in macros:
+                if params is not None:
+                    # Function-like macro expansion
+                    new_code = self._expand_func_macro(result_code, name, params, body)
+                    if new_code != result_code:
+                        result_code = new_code
+                        changed = True
+                else:
+                    # Object-like macro: check if it's a simple constant
+                    if self._is_simple_constant(body):
+                        # Keep as static const — don't inline
+                        continue
+                    # Expression or alias macro — inline expand
+                    # Use word boundary to avoid partial matches
+                    pattern = re.compile(r'\b' + re.escape(name) + r'\b')
+                    new_code = pattern.sub(body, result_code)
+                    if new_code != result_code:
+                        result_code = new_code
+                        changed = True
+            if not changed:
+                break
+
+        # Step 5: Re-insert simple constant macros as static const declarations
+        const_lines = []
+        for name, params, body, _ in macros:
+            if params is None and self._is_simple_constant(body):
+                const_type = self._infer_define_type(body)
+                const_lines.append(f'static const {const_type} {name} = {body};')
+
+        if const_lines:
+            result_code = '\n'.join(const_lines) + '\n' + result_code
+
+        return result_code
+
+    def _is_simple_constant(self, value: str) -> bool:
+        """Check if a #define value is a simple numeric constant.
+
+        Returns True for: 3.14159, 10, -5, 2e2, 1.0f
+        Returns False for: (sin(x)+1), normalize, vec3(1,0,0)
+        """
+        return bool(re.match(r'^-?(\d+\.?\d*|\d*\.\d+)([eE][+-]?\d+)?[fF]?$', value.strip()))
+
+    def _expand_func_macro(self, code: str, name: str, params: list, body: str) -> str:
+        """Expand a function-like macro in code.
+
+        #define P(z) (vec3(cos((z)*.015)*16., ...))
+        P(p.z) → (vec3(cos((p.z)*.015)*16., ...))
+        """
+        # Pattern: NAME followed by ( with balanced parens
+        pattern = re.compile(r'\b' + re.escape(name) + r'\s*\(')
+        offset = 0
+        while True:
+            m = pattern.search(code, offset)
+            if not m:
+                break
+            paren_start = m.end() - 1  # position of '('
+            paren_end = self._find_balanced_parens(code, paren_start)
+            if paren_end == -1:
+                offset = m.end()
+                continue
+
+            args_str = code[paren_start + 1:paren_end]
+            args = self._split_args_balanced(args_str)
+
+            if len(args) != len(params):
+                # Argument count mismatch — skip (might be a different function)
+                offset = paren_end + 1
+                continue
+
+            # Substitute parameters in body
+            expanded = body
+            for param, arg in zip(params, args):
+                # Replace parameter with argument, using word boundaries
+                expanded = re.sub(r'\b' + re.escape(param) + r'\b', arg.strip(), expanded)
+
+            code = code[:m.start()] + expanded + code[paren_end + 1:]
+            offset = m.start() + len(expanded)
+
+        return code
 
     def _detect_multipass(self, code: str) -> bool:
         """检测是否包含多 pass 引用"""
