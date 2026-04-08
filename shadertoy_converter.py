@@ -8,7 +8,7 @@
 
 功能：
   1. GLSL → HLSL 类型映射 (vec2→float2, mat3→float3x3, etc.)
-  2. GLSL → HLSL 函数映射 (mix→lerp, fract→frac, mod→fmod, texture→tex2D, etc.)
+  2. GLSL → HLSL 函数映射 (mix→lerp, fract→frac, mod→glsl_mod, texture→tex2D, etc.)
   3. 构造函数转换 (vec3(1.0)→float3(1.0,1.0,1.0))
   4. Shadertoy 内置变量映射 (iTime, iResolution, fragCoord, iMouse, iChannel)
   5. mainImage 函数体提取与转换
@@ -85,7 +85,7 @@ TYPE_DIMENSIONS = {
 FUNCTION_MAP = {
     'mix':           'lerp',
     'fract':         'frac',
-    'mod':           'fmod',
+    'mod':           'glsl_mod',
     'texture':       'tex2D',
     'texture2D':     'tex2D',
     'textureLod':    'tex2Dlod',
@@ -739,20 +739,20 @@ class ShadertoyConverter:
         return False
 
     def _convert_matrix_constructors(self, code: str) -> str:
-        """Convert GLSL-style matrix constructors to HLSL row-vector form.
+        """Convert GLSL-style matrix constructors to HLSL row-major form.
 
-        GLSL allows scalar arguments in matrix constructors:
-            mat2(a, b, c, d)           → fills column-major
-            mat3(a,b,c, d,e,f, g,h,i)  → fills column-major
+        GLSL matrices are column-major. This method handles three cases:
 
-        HLSL requires row vectors:
-            float2x2(float2(a,b), float2(c,d))
-            float3x3(float3(a,b,c), float3(d,e,f), float3(g,h,i))
-            float4x4(float4(a,..,d), float4(e,..,h), float4(i,..,l), float4(m,..,p))
+        1. Scalar args (4/9/16 scalars): Transpose the fill order.
+           GLSL mat2(a,b,c,d) fills col0=(a,b), col1=(c,d)
+           → HLSL float2x2(float2(a,c), float2(b,d))
 
-        Only rewrites when the argument count matches the scalar count
-        (4 for 2x2, 9 for 3x3, 16 for 4x4). If the user already passes
-        row vectors (e.g. float3x3(v1, v2, v3) with 3 args), leave as-is.
+        2. Single vec4 arg for mat2: Extract components with transpose.
+           GLSL mat2(v) fills col0=(v.x,v.y), col1=(v.z,v.w)
+           → HLSL float2x2(float2(v.x,v.z), float2(v.y,v.w))
+
+        3. N vector args for NxN matrix: GLSL treats them as columns.
+           GLSL mat3(col0, col1, col2) → HLSL transpose(float3x3(col0, col1, col2))
         """
         matrix_info = {
             'float2x2': {'dim': 2, 'scalar_count': 4,  'row_type': 'float2'},
@@ -793,7 +793,20 @@ class ShadertoyConverter:
         return args
 
     def _rewrite_matrix_constructor(self, code: str, mtype: str, info: dict) -> str:
-        """Rewrite all occurrences of mtype(scalar_args...) to mtype(rowN(...), ...).
+        """Rewrite GLSL-style matrix constructors to HLSL row-major form.
+
+        GLSL matrices are column-major: mat2(a,b,c,d) fills columns first:
+            col0=(a,b), col1=(c,d) → matrix | a c |
+                                             | b d |
+        HLSL float2x2(row0, row1) is row-major:
+            float2x2(float2(a,c), float2(b,d)) → matrix | a c |
+                                                          | b d |
+
+        So scalar args must be transposed: element at col C, row R in GLSL
+        maps to args[C * dim + R], and HLSL row R needs args from each column.
+
+        For vector args (N vectors of dim N), GLSL treats them as columns,
+        so we wrap with transpose() to convert column-major → row-major.
 
         Uses balanced parenthesis matching to correctly handle nested expressions.
         """
@@ -819,24 +832,37 @@ class ShadertoyConverter:
             args = self._split_args_balanced(args_str)
 
             if len(args) == scalar_count:
-                # This is a scalar-argument constructor — rewrite to row vectors
+                # Scalar-argument constructor — transpose from column-major to row-major.
+                # GLSL fills column-major: args[0..dim-1] = col0, args[dim..2*dim-1] = col1, etc.
+                # HLSL needs rows: row R = (args[0*dim+R], args[1*dim+R], ..., args[(dim-1)*dim+R])
                 rows = []
                 for r in range(dim):
-                    row_args = args[r * dim:(r + 1) * dim]
+                    row_args = [args[c * dim + r] for c in range(dim)]
                     rows.append(f'{row_type}({", ".join(row_args)})')
                 new_constructor = f'{mtype}({", ".join(rows)})'
                 code = code[:m.start()] + new_constructor + code[paren_end + 1:]
                 offset = m.start() + len(new_constructor)
             elif len(args) == 1 and dim == 2 and not re.match(r'^[+-]?\d+\.?\d*[fF]?$', args[0].strip()):
                 # Single vector arg for float2x2: mat2(vec4_expr)
-                # GLSL fills column-major from the vec4 components.
-                # Rewrite: float2x2((<expr>).xy, (<expr>).zw)
+                # GLSL fills column-major from the vec4 components:
+                #   col0=(v.x, v.y), col1=(v.z, v.w)
+                #   matrix: | v.x  v.z |
+                #           | v.y  v.w |
+                # HLSL rows: row0=(v.x, v.z), row1=(v.y, v.w)
                 expr = args[0].strip()
-                new_constructor = f'{mtype}(({expr}).xy, ({expr}).zw)'
+                new_constructor = f'{mtype}(float2(({expr}).x, ({expr}).z), float2(({expr}).y, ({expr}).w))'
+                code = code[:m.start()] + new_constructor + code[paren_end + 1:]
+                offset = m.start() + len(new_constructor)
+            elif len(args) == dim and dim >= 2:
+                # N vector args for NxN matrix: GLSL treats these as N column vectors.
+                # e.g. mat2(col0, col1), mat3(col0, col1, col2)
+                # Wrap with transpose() to convert column-major → row-major.
+                original = code[m.start():paren_end + 1]
+                new_constructor = f'transpose({original})'
                 code = code[:m.start()] + new_constructor + code[paren_end + 1:]
                 offset = m.start() + len(new_constructor)
             else:
-                # Not scalar args (already row vectors or single scalar) — skip
+                # Single scalar (identity matrix) or other — skip
                 offset = paren_end + 1
 
         return code
@@ -871,7 +897,7 @@ class ShadertoyConverter:
         # 修复 GLSL 的 out/inout 参数修饰符
         # HLSL 也支持 out/inout，所以可以保留
 
-        # 修复 GLSL mod(a, b) → fmod(a, b)（已在函数映射中处理）
+        # 修复 GLSL mod(a, b) → glsl_mod(a, b)（已在函数映射中处理）
 
         # 修复 GLSL 特有的类型转换
         # int(x) → (int)(x) — HLSL 也支持函数式转换，保留即可
@@ -2094,6 +2120,25 @@ class ShadertoyConverter:
             for g in global_lines:
                 converted_global = self._convert_defines_to_const(g)
                 parts.append(converted_global)
+            parts.append('')
+
+        # 1b. Inject glsl_mod helper functions if needed
+        # Check all code parts for glsl_mod usage
+        all_code_preview = '\n'.join(helpers) + '\n' + main_code
+        if 'glsl_mod(' in all_code_preview:
+            glsl_mod_helpers = (
+                '// GLSL mod() equivalent - always non-negative for positive y\n'
+                'float glsl_mod(float x, float y) { return x - y * floor(x / y); }\n'
+                'float2 glsl_mod(float2 x, float y) { return x - y * floor(x / y); }\n'
+                'float2 glsl_mod(float2 x, float2 y) { return x - y * floor(x / y); }\n'
+                'float3 glsl_mod(float3 x, float y) { return x - y * floor(x / y); }\n'
+                'float3 glsl_mod(float3 x, float3 y) { return x - y * floor(x / y); }\n'
+                'float4 glsl_mod(float4 x, float y) { return x - y * floor(x / y); }\n'
+                'float4 glsl_mod(float4 x, float4 y) { return x - y * floor(x / y); }'
+            )
+            if not global_lines:
+                parts.append('// ── Global Declarations ──')
+            parts.append(glsl_mod_helpers)
             parts.append('')
 
         # 2. Struct encapsulation
