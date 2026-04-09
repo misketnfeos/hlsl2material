@@ -2481,7 +2481,7 @@ def main():
   交互式 Web 工具已启动！
 {'═' * 56}
 
-  🌐 打开浏览器访问: http://{HOST}:{PORT}
+  🌐 打开浏览器访问: http://localhost:{PORT}
 
   功能：
     • 📋 T3D 模式：从 UE4 复制节点 → Web 可视化 → 复制回 UE4
