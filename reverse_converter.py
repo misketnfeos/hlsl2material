@@ -418,12 +418,12 @@ class ReverseConverter:
 
     def _emit_binary_func(self, node: MaterialNode, func_name: str) -> str:
         a_node = node.inputs.get('A') or node.inputs.get('Base')
-        b_node = node.inputs.get('B') or node.inputs.get('Exponent') or node.inputs.get('Y')
+        b_node = node.inputs.get('B') or node.inputs.get('Exp') or node.inputs.get('Exponent') or node.inputs.get('Y')
 
-        # pow 的特殊输入名称
+        # pow 的特殊输入名称（T3D 中 PinName 是 'Exp'，属性名是 'Exponent'）
         if func_name == 'pow':
             a_node = node.inputs.get('Base') or node.inputs.get('A')
-            b_node = node.inputs.get('Exponent') or node.inputs.get('B')
+            b_node = node.inputs.get('Exp') or node.inputs.get('Exponent') or node.inputs.get('B')
 
         if func_name == 'atan2':
             a_node = node.inputs.get('Y') or node.inputs.get('A')
