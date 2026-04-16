@@ -5,7 +5,8 @@
 ============================================================
 
 支持的 HLSL 子集（Custom HLSL 常用）：
-  - 类型：float, float2, float3, float4, half, half3, half4, int, bool
+  - 类型：float, float2, float3, float4, half, half3, half4, int, uint, bool,
+          float2x2, float3x3, float4x4
   - 运算符：+ - * / % > < >= <= == != && || ! ?:
   - 内置函数：lerp, saturate, clamp, dot, cross, normalize, pow,
               sin, cos, tan, asin, acos, atan, atan2,
@@ -56,7 +57,14 @@ class TokenType(Enum):
     INT2 = auto()
     INT3 = auto()
     INT4 = auto()
+    UINT = auto()
+    UINT2 = auto()
+    UINT3 = auto()
+    UINT4 = auto()
     BOOL = auto()
+    FLOAT2X2 = auto()
+    FLOAT3X3 = auto()
+    FLOAT4X4 = auto()
 
     # 控制关键字
     RETURN = auto()
@@ -127,7 +135,14 @@ TYPE_KEYWORDS = {
     'int2':   TokenType.INT2,
     'int3':   TokenType.INT3,
     'int4':   TokenType.INT4,
+    'uint':   TokenType.UINT,
+    'uint2':  TokenType.UINT2,
+    'uint3':  TokenType.UINT3,
+    'uint4':  TokenType.UINT4,
     'bool':   TokenType.BOOL,
+    'float2x2': TokenType.FLOAT2X2,
+    'float3x3': TokenType.FLOAT3X3,
+    'float4x4': TokenType.FLOAT4X4,
 }
 
 CONTROL_KEYWORDS = {
@@ -633,6 +648,15 @@ class Parser:
         # if 语句
         if tok.type == TokenType.IF:
             return self.parse_if_statement()
+
+        # HLSL 属性标记 [loop], [unroll], [branch] 等 → 跳过后继续解析
+        if tok.type == TokenType.LBRACKET:
+            self.advance()  # 跳过 [
+            while not self.match(TokenType.RBRACKET, TokenType.EOF):
+                self.advance()
+            if self.match(TokenType.RBRACKET):
+                self.advance()  # 跳过 ]
+            return self.parse_statement()  # 继续解析后面的实际语句
 
         # struct 定义（跳过整个 struct 块）
         if tok.type == TokenType.IDENTIFIER and tok.value == 'struct':
@@ -1118,7 +1142,8 @@ def dump_ast(node: ASTNode, indent: int = 0) -> str:
 ============================================================
 
 支持的 HLSL 子集（Custom HLSL 常用）：
-  - 类型：float, float2, float3, float4, half, half3, half4, int, bool
+  - 类型：float, float2, float3, float4, half, half3, half4, int, uint, bool,
+          float2x2, float3x3, float4x4
   - 运算符：+ - * / % > < >= <= == != && || ! ?:
   - 内置函数：lerp, saturate, clamp, dot, cross, normalize, pow,
               sin, cos, tan, asin, acos, atan, atan2,
@@ -1169,7 +1194,14 @@ class TokenType(Enum):
     INT2 = auto()
     INT3 = auto()
     INT4 = auto()
+    UINT = auto()
+    UINT2 = auto()
+    UINT3 = auto()
+    UINT4 = auto()
     BOOL = auto()
+    FLOAT2X2 = auto()
+    FLOAT3X3 = auto()
+    FLOAT4X4 = auto()
 
     # 控制关键字
     RETURN = auto()
@@ -1240,7 +1272,14 @@ TYPE_KEYWORDS = {
     'int2':   TokenType.INT2,
     'int3':   TokenType.INT3,
     'int4':   TokenType.INT4,
+    'uint':   TokenType.UINT,
+    'uint2':  TokenType.UINT2,
+    'uint3':  TokenType.UINT3,
+    'uint4':  TokenType.UINT4,
     'bool':   TokenType.BOOL,
+    'float2x2': TokenType.FLOAT2X2,
+    'float3x3': TokenType.FLOAT3X3,
+    'float4x4': TokenType.FLOAT4X4,
 }
 
 CONTROL_KEYWORDS = {
@@ -1746,6 +1785,15 @@ class Parser:
         # if 语句
         if tok.type == TokenType.IF:
             return self.parse_if_statement()
+
+        # HLSL 属性标记 [loop], [unroll], [branch] 等 → 跳过后继续解析
+        if tok.type == TokenType.LBRACKET:
+            self.advance()  # 跳过 [
+            while not self.match(TokenType.RBRACKET, TokenType.EOF):
+                self.advance()
+            if self.match(TokenType.RBRACKET):
+                self.advance()  # 跳过 ]
+            return self.parse_statement()  # 继续解析后面的实际语句
 
         # struct 定义（跳过整个 struct 块）
         if tok.type == TokenType.IDENTIFIER and tok.value == 'struct':

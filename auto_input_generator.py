@@ -74,7 +74,37 @@ SCALAR_SUFFIXES = [
     'min', 'max', 'step', 'tiling', 'density',
     'thickness', 'attenuation', 'falloff', 'hardness', 'softness',
     'contrast', 'saturation', 'brightness', 'gamma', 'exposure',
+    'index', 'reflection', 'dispersion', 'refraction',
+    'disaturate', 'desaturate',
 ]
+
+# UE4 Custom Node 内置变量 / HLSL 关键字 — 不应作为外部输入
+EXCLUDED_VARS = {
+    # UE4 Custom Node 隐式可用的变量
+    'Parameters',
+    # HLSL 内置常量和关键字
+    'true', 'false',
+    'break', 'continue', 'discard',
+    'return', 'if', 'else', 'for', 'while', 'do', 'switch', 'case', 'default',
+    # HLSL 类型关键字
+    'void', 'float', 'float2', 'float3', 'float4',
+    'half', 'half2', 'half3', 'half4',
+    'int', 'int2', 'int3', 'int4',
+    'uint', 'uint2', 'uint3', 'uint4',
+    'bool', 'float2x2', 'float3x3', 'float4x4',
+    # HLSL 内置函数（不应被误识别为变量）
+    'mul', 'dot', 'cross', 'normalize', 'reflect', 'refract',
+    'lerp', 'saturate', 'clamp', 'abs', 'sign', 'floor', 'ceil', 'round',
+    'frac', 'fmod', 'sqrt', 'rsqrt', 'pow', 'exp', 'exp2', 'log', 'log2',
+    'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2',
+    'min', 'max', 'step', 'smoothstep', 'length', 'distance',
+    'ddx', 'ddy', 'transpose',
+    'tex2D', 'SampleLevel', 'GetDimensions', 'Sample',
+    'loop', 'unroll', 'branch',  # HLSL 属性标记
+}
+
+# 采样器后缀 — 名称以 Sampler 结尾的变量由纹理对象隐式提供，不需要单独输入
+SAMPLER_SUFFIX = 'sampler'
 
 VECTOR_PATTERNS = [
     'color', 'colour', 'pos', 'position', 'dir', 'direction',
@@ -138,11 +168,23 @@ class AutoInputGenerator:
         self._collect_declarations(ast.statements)
         self._collect_usage(ast.statements)
 
+        # 补充：从原始 HLSL 代码中提取标识符（覆盖 for/while 循环等 AST 跳过的区域）
+        if hlsl_code:
+            self._collect_usage_from_source(hlsl_code)
+
         # 第二遍：从 tex2D 调用中识别纹理参数
         self._collect_tex2d_params(ast.statements)
 
         # 确定外部输入：使用了但未声明的变量
         external_vars = self._used_vars - self._declared_vars
+
+        # 过滤掉不应作为输入的变量
+        external_vars -= EXCLUDED_VARS
+        # 过滤掉采样器变量（名称以 Sampler 结尾，由纹理对象隐式提供）
+        external_vars = {
+            v for v in external_vars
+            if not v.lower().endswith(SAMPLER_SUFFIX)
+        }
 
         # 为每个外部变量创建 InputVarInfo
         for var_name in sorted(external_vars):
@@ -206,6 +248,32 @@ class AutoInputGenerator:
         elif isinstance(expr, Assignment):
             self._collect_expr_usage(expr.target)
             self._collect_expr_usage(expr.value)
+
+    def _collect_usage_from_source(self, hlsl_code: str):
+        """从原始 HLSL 源码中提取外部输入变量，补充 AST 跳过的 for/while 循环区域。
+
+        策略：用正则提取局部变量声明，然后只把未声明的标识符加入 _used_vars。
+        排除 dot 后面的成员/swizzle 分量（如 p.xyz 中的 xyz）。
+        """
+        # 去掉注释
+        code = re.sub(r'//[^\n]*', '', hlsl_code)
+        code = re.sub(r'/\*.*?\*/', '', code, flags=re.DOTALL)
+
+        # 从源码中提取局部变量声明（类型 变量名 模式）
+        # 匹配: float3 name, int name, bool name, uint name, float4x4 name 等
+        local_decls = set()
+        for m in re.finditer(
+            r'\b(?:float[234]?|half[234]?|int[234]?|uint[234]?|bool|float[234]x[234])\s+(\w+)',
+            code
+        ):
+            local_decls.add(m.group(1))
+
+        # 提取独立标识符（排除 dot 后面的成员访问/swizzle）
+        # 匹配: 非 dot 开头的标识符
+        for m in re.finditer(r'(?<!\.)(?<!\w)\b([A-Z]\w*)\b', code):
+            name = m.group(1)
+            if name not in local_decls:
+                self._used_vars.add(name)
 
     def _collect_tex2d_params(self, stmts: List[ASTNode]):
         """收集 tex2D 调用中的第一个参数（纹理对象）"""

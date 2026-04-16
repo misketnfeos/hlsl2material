@@ -260,6 +260,7 @@ ENGINE_BUILTIN_VARS = {
     'CameraPosition':       ('MaterialExpressionCameraPositionWS',    'CameraPos (WS)',     []),
     'CameraWorldPosition':  ('MaterialExpressionCameraPositionWS',    'CameraPos (WS)',     []),
     'CamPos':               ('MaterialExpressionCameraPositionWS',    'CameraPos (WS)',     []),
+    'CameraPos':            ('MaterialExpressionCameraPositionWS',    'CameraPos (WS)',     []),
     'WorldPosition':        ('MaterialExpressionWorldPosition',       'WorldPos',           []),
     'WorldPos':             ('MaterialExpressionWorldPosition',       'WorldPos',           []),
     'AbsoluteWorldPosition':('MaterialExpressionWorldPosition',       'WorldPos (Abs)',     []),
@@ -661,6 +662,8 @@ class NodeMapper:
             'min', 'max', 'step', 'tiling', 'density',
             'thickness', 'attenuation', 'falloff', 'hardness', 'softness',
             'contrast', 'saturation', 'brightness', 'gamma', 'exposure',
+            'index', 'reflection', 'dispersion', 'refraction',
+            'disaturate', 'desaturate',
         ]
         for suffix in scalar_suffixes:
             if name_lower.endswith(suffix) or name_lower == suffix:
