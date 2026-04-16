@@ -122,7 +122,7 @@ SHADERTOY_UNIFORMS = {
     'iGlobalTime':      {'ue4': 'Time',          'desc': 'Time node (legacy name)'},
     'iTimeDelta':       {'ue4': '0.016',         'desc': 'Frame delta time (~16ms), use a parameter for accuracy'},
     'iFrame':           {'ue4': '0',             'desc': 'Frame number (not directly available in UE4 material)'},
-    'iResolution':      {'ue4': 'float3(ViewSize.y, ViewSize.x, 1.0)',      'desc': 'Screen resolution as float3(width, height, 1.0). ViewSize.yx because UE4 ViewSize is (height, width)'},
+    'iResolution':      {'ue4': '__IRESOLUTION__',      'desc': 'Screen resolution. iResolution.xy → ViewSize, iResolution.z → 1.0'},
     'iMouse':           {'ue4': 'float4(0,0,0,0)', 'desc': 'Mouse position (removed, use parameter if needed)'},
     'iDate':            {'ue4': 'float4(0,0,0,0)', 'desc': 'Date (not available in UE4 material)'},
     'iSampleRate':      {'ue4': '44100.0',        'desc': 'Audio sample rate (not relevant for UE4)'},
@@ -742,6 +742,10 @@ class ShadertoyConverter:
         # If it ends with a swizzle of length > 1, it's a vector
         swizzle_match = re.search(r'\.[xyzwrgba]{2,}$', expr)
         if swizzle_match:
+            return False
+
+        # If it contains array subscripts (e.g. colors[0]), the elements might be vectors
+        if '[' in expr:
             return False
 
         # If it contains arithmetic operators (+, -, *, /), it's likely scalar math
@@ -1791,6 +1795,18 @@ class ShadertoyConverter:
                     f'{uniform_name} → {ue4_replacement} ({info["desc"]})'
                 )
 
+        # iResolution 特殊处理：将占位符替换为简洁形式
+        # __IRESOLUTION__.xy → ViewSize
+        # __IRESOLUTION__.x  → ViewSize.x
+        # __IRESOLUTION__.y  → ViewSize.y
+        # __IRESOLUTION__.z  → 1.0
+        # __IRESOLUTION__    → float3(ViewSize.x, ViewSize.y, 1.0)  (bare, 需要 float3)
+        result = re.sub(r'__IRESOLUTION__\.xy\b', 'ViewSize', result)
+        result = re.sub(r'__IRESOLUTION__\.x\b', 'ViewSize.x', result)
+        result = re.sub(r'__IRESOLUTION__\.y\b', 'ViewSize.y', result)
+        result = re.sub(r'__IRESOLUTION__\.z\b', '1.0', result)
+        result = result.replace('__IRESOLUTION__', 'float3(ViewSize.x, ViewSize.y, 1.0)')
+
         return result
 
     def _is_fragcoord_mutated(self, code: str) -> bool:
@@ -1832,15 +1848,15 @@ class ShadertoyConverter:
 
         # 模式1: uv = fragCoord / iResolution.xy
         # 或: uv = fragCoord.xy / iResolution.xy
-        # 注意: iResolution 可能已被 _map_shadertoy_uniforms 替换为 float3(ViewSize.y, ViewSize.x, 1.0)
+        # 注意: iResolution 已被 _map_shadertoy_uniforms 替换为 ViewSize 相关表达式
         uv_pattern = re.compile(
-            r'(\w+)\s*=\s*fragCoord(?:\.xy)?\s*/\s*(?:float3\(ViewSize\.y,\s*ViewSize\.x,\s*1\.0\)|float3\(ViewSize,\s*1\.0\)|ViewSize(?:\.yx)?|iResolution)(?:\.xy)?\s*;'
+            r'(\w+)\s*=\s*fragCoord(?:\.xy)?\s*/\s*(?:float3\(ViewSize\.x,\s*ViewSize\.y,\s*1\.0\)|float3\(ViewSize,\s*1\.0\)|ViewSize|iResolution)(?:\.xy)?\s*;'
         )
         match = uv_pattern.search(result)
         if match:
             uv_var = match.group(1)
-            result = uv_pattern.sub(f'{uv_var} = UV; // fragCoord/iResolution → UV (0~1)', result)
-            self.warnings.append('fragCoord/iResolution 模式替换为 UV 输入。请将 UV 作为 Custom Node 的输入参数连接 TextureCoordinate 节点。')
+            result = uv_pattern.sub(f'{uv_var} = float2(UV.x, 1.0 - UV.y); // fragCoord/iResolution → UV (0~1, Y flipped)', result)
+            self.warnings.append('fragCoord/iResolution 模式替换为 float2(UV.x, 1.0 - UV.y)（Y轴翻转）。请将 UV 作为 Custom Node 的输入参数连接 TextureCoordinate 节点。')
 
         # 检查是否还有 fragCoord 残留（排除注释）
         has_fragcoord = False
@@ -1860,9 +1876,9 @@ class ShadertoyConverter:
         if self._is_fragcoord_mutated(result):
             # 模式2: fragCoord 被当作可变局部变量使用
             # 注入局部变量声明，保留所有 fragCoord 引用不变
-            result = 'float2 fragCoord = (UV * ViewSize.yx);\n' + result
+            result = 'float2 fragCoord = (float2(UV.x, 1.0 - UV.y) * ViewSize);\n' + result
             self.warnings.append(
-                'fragCoord 被用作可变局部变量，已注入 float2 fragCoord = (UV * ViewSize.yx) 声明。'
+                'fragCoord 被用作可变局部变量，已注入 float2 fragCoord = (float2(UV.x, 1.0 - UV.y) * ViewSize) 声明（Y轴翻转）。'
                 '请确保 UV 和 ViewSize 已作为 Custom Node 的输入。'
             )
         else:
@@ -1875,11 +1891,11 @@ class ShadertoyConverter:
                     continue
                 code_part = line.split('//')[0]
                 if re.search(r'\bfragCoord\b', code_part):
-                    lines[i] = re.sub(r'\bfragCoord\b', '(UV * ViewSize.yx)', line)
+                    lines[i] = re.sub(r'\bfragCoord\b', '(float2(UV.x, 1.0 - UV.y) * ViewSize)', line)
                     replaced = True
             if replaced:
                 result = '\n'.join(lines)
-                self.warnings.append('fragCoord 替换为 (UV * ViewSize.yx)。请确保 UV 和 ViewSize 已作为 Custom Node 的输入。')
+                self.warnings.append('fragCoord 替换为 (float2(UV.x, 1.0 - UV.y) * ViewSize)（Y轴翻转）。请确保 UV 和 ViewSize 已作为 Custom Node 的输入。')
 
         return result
 
